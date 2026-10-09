@@ -62,11 +62,7 @@ services:
 volumes:
   mt5_wine_data:
   mt5_wine_data_b:
-    name: mt5_wine_data_b
-    external: true
   mt5_wine_data_c:
-    name: mt5_wine_data_c
-    external: true
   mt5_wine_data_d:
-    name: mt5_wine_data_d
-    external: true
+
+

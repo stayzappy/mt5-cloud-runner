@@ -7,3 +7,4 @@ Universal open-source container harness for running headless MetaTrader 5 (MT5) 
 - Dynamic over-the-air (OTA) execution lifecycle
 - Remote telemetry streaming and automated health watchdogs
 - Zero hardcoded secrets or broker configurations
+

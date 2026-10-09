@@ -77,10 +77,6 @@ except Exception as e:
     print(f'Warning: Could not fetch accounts from Worker: {e}')
 "
 
-# 3. Ensure external Docker volumes exist
-docker volume create mt5_wine_data_b >/dev/null 2>&1 || true
-docker volume create mt5_wine_data_c >/dev/null 2>&1 || true
-docker volume create mt5_wine_data_d >/dev/null 2>&1 || true
 
 # 4. Start Docker containers
 echo "[Cloud Harness] Starting Docker MT5 headless containers..."
@@ -155,3 +151,4 @@ PID_D=$!
 echo "[Cloud Harness] 4 bots executing in background (PIDs: $PID_A, $PID_B, $PID_C, $PID_D)."
 wait "$PID_A" "$PID_B" "$PID_C" "$PID_D"
 echo "[Cloud Harness] Session complete. Clean exit."
+
