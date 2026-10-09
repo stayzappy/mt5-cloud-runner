@@ -87,33 +87,53 @@ sleep 15
 
 # Helper: Auto-login injection into container
 inject_mt5_cfg() {
-    local container="$1"
+    local cname="$1"
     local env_file="$2"
     if [ ! -f "$env_file" ]; then return 0; fi
 
-    local login password server
-    login=$(grep '^MT5_LOGIN=' "$env_file" | cut -d'=' -f2 | tr -d ' "\r')
-    password=$(grep '^MT5_PASSWORD=' "$env_file" | cut -d'=' -f2 | tr -d ' "\r')
-    server=$(grep '^MT5_SERVER=' "$env_file" | cut -d'=' -f2 | tr -d ' "\r')
+    local login_val pwd_val srv_val
+    login_val=$(grep '^MT5_LOGIN=' "$env_file" | cut -d= -f2- | tr -d ' "\r')
+    pwd_val=$(grep '^MT5_PASSWORD=' "$env_file" | cut -d= -f2- | tr -d ' "\r')
+    srv_val=$(grep '^MT5_SERVER=' "$env_file" | cut -d= -f2- | tr -d ' "\r')
 
-    if [ -n "$login" ] && [ -n "$password" ] && [ -n "$server" ]; then
-        docker exec "$container" bash -c "
-cat > /opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/mt5cfg.ini <<'EOF'
-[Start]
-Profile=default
-Login=$login
-Password=$password
-Server=$server
+    docker exec "$cname" mkdir -p "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config" 2>/dev/null || true
+    if [ -f "config/servers.dat" ]; then
+        docker cp "config/servers.dat" "$cname:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/servers.dat" 2>/dev/null || true
+    fi
+
+    if [ -n "$login_val" ] && [ -n "$pwd_val" ]; then
+        docker exec "$cname" sh -c "cat > '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/mt5cfg.ini' <<EOF
+[Common]
+Login=${login_val}
+Password=${pwd_val}
+Server=${srv_val}
+NewsEnable=0
+Profile=Blank
+ProxyEnable=0
+[Charts]
+MaxBars=1000000
+SelectOneClick=1
+[Experts]
+Enabled=1
+Account=0
+Profile=0
+Chart=0
+Api=0
+[Events]
+Enable=0
+NewsEnable=0
 EOF
-" 2>/dev/null || true
+cp '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/mt5cfg.ini' /mt5linux/mt5cfg.ini 2>/dev/null || true"
     fi
 }
 
+echo "[Cloud Harness] Configuring auto-login mt5cfg.ini and Exness servers in containers..."
 inject_mt5_cfg mt5_headless .env.strategy_a
 inject_mt5_cfg mt5_headless_b .env.strategy_b
 inject_mt5_cfg mt5_headless_c .env.funded_500k
 inject_mt5_cfg mt5_headless_d .env.weekly80
 docker restart mt5_headless mt5_headless_b mt5_headless_c mt5_headless_d >/dev/null 2>&1 || true
+echo "[Cloud Harness] Waiting 15s for Wine initialization after restart..."
 sleep 15
 
 # 5. Wait for all 4 RPyC bridges to become ready
