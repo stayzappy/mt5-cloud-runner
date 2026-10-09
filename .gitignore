@@ -1,0 +1,5 @@
+.env*
+data/
+logs/
+*.tar.gz
+mt5_trader_engine

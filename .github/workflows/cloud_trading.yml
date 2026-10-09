@@ -1,0 +1,45 @@
+name: Cloud Trading Harness (Unlimited Minutes)
+
+on:
+  schedule:
+    # Session 1: 00:15 WAT (23:15 UTC previous day Sun-Thu)
+    - cron: '10 23 * * 0-4'
+    # Session 2: 14:15 WAT (13:15 UTC Mon-Fri)
+    - cron: '10 13 * * 1-5'
+  repository_dispatch:
+    types: [engine_updated, trigger_session]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Simulation mode (--dry-run)'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: mt5-cloud-session
+  cancel-in-progress: false
+
+jobs:
+  run-trading-session:
+    name: Headless MT5 Multi-Account Session
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout Harness
+        uses: actions/checkout@v4
+
+      - name: Set up Environment & Auth
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          echo "$PRIVATE_REPO_TOKEN" | gh auth login --with-token
+          gh auth status
+
+      - name: Execute Live Trading Session (OTA Binary)
+        env:
+          CONTROL_WORKER_URL: ${{ secrets.CONTROL_WORKER_URL || 'https://mt5-control-studio.zapstream.workers.dev' }}
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          bash scripts/cloud_start_harness.sh

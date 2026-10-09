@@ -1,0 +1,72 @@
+services:
+  mt5:
+    image: lprett/mt5linux:mt5-installed
+    container_name: mt5_headless
+    restart: unless-stopped
+    ports:
+      - "8080:6081"   # noVNC web UI on http://localhost:8080
+      - "5901:5901"   # VNC protocol port
+      - "18812:18812" # RPyC MT5 Python Bridge port
+    environment:
+      - MT5_HOST=0.0.0.0
+      - VNC_PASSWORD=password
+    volumes:
+      - mt5_wine_data:/opt/wineprefix
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+
+  mt5_b:
+    image: lprett/mt5linux:mt5-installed
+    container_name: mt5_headless_b
+    restart: unless-stopped
+    ports:
+      - "8081:6081"   # noVNC web UI on http://localhost:8081
+      - "5902:5901"   # VNC protocol port
+      - "18813:18812" # RPyC MT5 Python Bridge port
+    environment:
+      - MT5_HOST=0.0.0.0
+      - VNC_PASSWORD=password
+    volumes:
+      - mt5_wine_data_b:/opt/wineprefix
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+
+  mt5_c:
+    image: lprett/mt5linux:mt5-installed
+    container_name: mt5_headless_c
+    restart: unless-stopped
+    ports:
+      - "8082:6081"   # noVNC web UI on http://localhost:8082
+      - "5903:5901"   # VNC protocol port
+      - "18814:18812" # RPyC MT5 Python Bridge port
+    environment:
+      - MT5_HOST=0.0.0.0
+      - VNC_PASSWORD=password
+    volumes:
+      - mt5_wine_data_c:/opt/wineprefix
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+
+  mt5_d:
+    image: lprett/mt5linux:mt5-installed
+    container_name: mt5_headless_d
+    restart: unless-stopped
+    ports:
+      - "8083:6081"   # noVNC web UI on http://localhost:8083
+      - "5904:5901"   # VNC protocol port
+      - "18815:18812" # RPyC MT5 Python Bridge port
+    environment:
+      - MT5_HOST=0.0.0.0
+      - VNC_PASSWORD=password
+    volumes:
+      - mt5_wine_data_d:/opt/wineprefix
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+
+volumes:
+  mt5_wine_data:
+  mt5_wine_data_b:
+    name: mt5_wine_data_b
+    external: true
+  mt5_wine_data_c:
+    name: mt5_wine_data_c
+    external: true
+  mt5_wine_data_d:
+    name: mt5_wine_data_d
+    external: true
