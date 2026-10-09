@@ -50,3 +50,4 @@ try:
     print(f'Successfully loaded {len(accounts)} dynamic account profiles with live Telegram credentials.')
 except Exception as e:
     print(f'Warning: Could not fetch accounts from Worker: {e}')
+
