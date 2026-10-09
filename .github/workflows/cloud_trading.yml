@@ -41,6 +41,8 @@ jobs:
         env:
           CONTROL_WORKER_URL: ${{ secrets.CONTROL_WORKER_URL || 'https://mt5-control-studio.zapstream.workers.dev' }}
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || '8867158689:AAFjM-QYCjMMMFA2_kpw98wCi-yzxzrACHA' }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || '1239030524' }}
         run: |
           bash scripts/cloud_start_harness.sh
 
