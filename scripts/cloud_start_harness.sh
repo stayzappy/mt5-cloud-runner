@@ -112,25 +112,17 @@ print('All MT5 RPyC bridges are ready.')
 "
 
 # 6. Launch all 4 bots via compiled standalone binary
-WINDOW_FLAG="--window-mode"
-if [ "${CONTINUOUS_SESSION:-false}" = "true" ] || [ "${EVENT_NAME:-}" != "schedule" ]; then
-    echo "[Cloud Harness] Discretionary / Mobile session triggered (Event: ${EVENT_NAME:-manual}). Running in CONTINUOUS mode (staying alive in cloud for mobile trades)..."
-    WINDOW_FLAG=""
-else
-    echo "[Cloud Harness] Automated scheduled cron session. Running with auto-exit --window-mode..."
-fi
-
-echo "[Cloud Harness] Launching 4 bots via compiled native binary (Flags: '${WINDOW_FLAG:-continuous}')..."
-./mt5_trader_engine --env .env.strategy_a $WINDOW_FLAG &
+echo "[Cloud Harness] Launching 4 bots in continuous mode (PipSense Trade Desk & algorithms active)..."
+./mt5_trader_engine --env .env.strategy_a &
 PID_A=$!
 
-./mt5_trader_engine --env .env.strategy_b $WINDOW_FLAG &
+./mt5_trader_engine --env .env.strategy_b &
 PID_B=$!
 
-./mt5_trader_engine --env .env.funded_500k $WINDOW_FLAG &
+./mt5_trader_engine --env .env.funded_500k &
 PID_C=$!
 
-./mt5_trader_engine --env .env.weekly80 $WINDOW_FLAG &
+./mt5_trader_engine --env .env.weekly80 &
 PID_D=$!
 
 echo "[Cloud Harness] 4 bots executing in background (PIDs: $PID_A, $PID_B, $PID_C, $PID_D)."
