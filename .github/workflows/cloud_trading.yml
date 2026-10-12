@@ -3,9 +3,13 @@ name: Cloud Trading Harness (Unlimited Minutes)
 on:
   schedule:
     # Session 1: 00:15 WAT (23:15 UTC previous day Sun-Thu)
-    - cron: '10 23 * * 0-4'
-    # Session 2: 14:15 WAT (13:15 UTC Mon-Fri)
-    - cron: '10 13 * * 1-5'
+    - cron: '15 23 * * 0-4'
+    # Session 2: 06:00 WAT (05:00 UTC Mon-Fri)
+    - cron: '0 5 * * 1-5'
+    # Session 3: 11:45 WAT (10:45 UTC Mon-Fri)
+    - cron: '45 10 * * 1-5'
+    # Session 4: 17:15 WAT (16:15 UTC Mon-Fri)
+    - cron: '15 16 * * 1-5'
   repository_dispatch:
     types: [engine_updated, trigger_session]
   workflow_dispatch:
