@@ -33,20 +33,13 @@ try:
             f.write(f'TOP_ANCHOR={acc.get("top_anchor", 200000.0)}\n')
             f.write(f'MAX_DRAWDOWN={acc.get("max_drawdown", 200000.0)}\n')
             f.write(f'GOAL_TARGET_PCT={acc.get("goal_target_pct", 15.0)}\n')
-            f.write(f'ACTIVE_STRATEGY={acc.get("active_strategy", "WEEKLY_80" if is_w80 else "7_VARIATIONS")}
-')
-            f.write(f'ACCOUNT_TYPE={acc.get("account_type", "ACE_PROP_FUNDED" if aid == "funded_500k" else "LEGACY")}
-')
-            f.write(f'HARD_FLOOR={acc.get("hard_floor", 400000.0 if aid == "funded_500k" else 0.0)}
-')
-            f.write(f'PROTECTED_ACCOUNT={acc.get("protected_account", True if aid == "funded_500k" else False)}
-')
-            f.write(f'MAX_WEEKLY_TRADES={acc.get("max_weekly_trades", 3)}
-')
-            f.write(f'MAX_WEEKLY_LOSSES={acc.get("max_weekly_losses", 2)}
-')
-            f.write(f'MAX_DAILY_TRADES={acc.get("max_daily_trades", 2)}
-')
+            f.write(f'ACTIVE_STRATEGY={acc.get("active_strategy", "WEEKLY_80" if is_w80 else "7_VARIATIONS")}\n')
+            f.write(f'ACCOUNT_TYPE={acc.get("account_type", "ACE_PROP_FUNDED" if aid == "funded_500k" else "LEGACY")}\n')
+            f.write(f'HARD_FLOOR={acc.get("hard_floor", 400000.0 if aid == "funded_500k" else 0.0)}\n')
+            f.write(f'PROTECTED_ACCOUNT={acc.get("protected_account", True if aid == "funded_500k" else False)}\n')
+            f.write(f'MAX_WEEKLY_TRADES={acc.get("max_weekly_trades", 3)}\n')
+            f.write(f'MAX_WEEKLY_LOSSES={acc.get("max_weekly_losses", 2)}\n')
+            f.write(f'MAX_DAILY_TRADES={acc.get("max_daily_trades", 2)}\n')
             f.write(f'WEEKLY80_MODE={is_w80}\n')
             f.write(f'SL_PIPS={acc.get("sl_pips", 6.3)}\n')
             f.write(f'TP_PIPS={acc.get("tp_pips", 11.0)}\n')
