@@ -16,6 +16,13 @@ echo "   STARTING MT5 CLOUD RUNNER HARNESS (HEADLESS MULTI-ACCOUNT)"
 echo "   Host Time (UTC): $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 echo "===================================================================="
 
+# Weekend Dormancy Check (Saturday / Sunday)
+DAY_OF_WEEK=$(date -u +%u)
+if [ "$DAY_OF_WEEK" -ge 6 ] && [ "${FORCE_RUN:-false}" != "true" ]; then
+    echo "[Cloud Harness] Weekend Dormancy: Markets closed. Standby until Monday 00:15 WAT. Clean exit."
+    exit 0
+fi
+
 # 1. Download compiled standalone engine binary from private release (OTA)
 echo "[Cloud Harness] Pulling latest standalone engine binary from private repository..."
 gh release download latest-engine \
