@@ -3,6 +3,8 @@ services:
     image: lprett/mt5linux:mt5-installed
     container_name: mt5_headless
     restart: unless-stopped
+    security_opt:
+      - seccomp:unconfined
     ports:
       - "8080:6081"   # noVNC web UI on http://localhost:8080
       - "5901:5901"   # VNC protocol port
@@ -18,6 +20,8 @@ services:
     image: lprett/mt5linux:mt5-installed
     container_name: mt5_headless_b
     restart: unless-stopped
+    security_opt:
+      - seccomp:unconfined
     ports:
       - "8081:6081"   # noVNC web UI on http://localhost:8081
       - "5902:5901"   # VNC protocol port
@@ -33,6 +37,8 @@ services:
     image: lprett/mt5linux:mt5-installed
     container_name: mt5_headless_c
     restart: unless-stopped
+    security_opt:
+      - seccomp:unconfined
     ports:
       - "8082:6081"   # noVNC web UI on http://localhost:8082
       - "5903:5901"   # VNC protocol port
@@ -48,6 +54,8 @@ services:
     image: lprett/mt5linux:mt5-installed
     container_name: mt5_headless_d
     restart: unless-stopped
+    security_opt:
+      - seccomp:unconfined
     ports:
       - "8083:6081"   # noVNC web UI on http://localhost:8083
       - "5904:5901"   # VNC protocol port
