@@ -2,9 +2,17 @@
 import urllib.request
 import json
 import os
+import glob
 
 worker_url = os.getenv('CONTROL_WORKER_URL', 'https://mt5-control-studio.zapstream.workers.dev').rstrip('/')
 req = urllib.request.Request(f'{worker_url}/api/dashboard?secrets=true', headers={'User-Agent': 'Mozilla/5.0'})
+
+PORT_TO_CONTAINER = {
+    18812: 'mt5_headless',
+    18813: 'mt5_headless_b',
+    18814: 'mt5_headless_c',
+    18815: 'mt5_headless_d',
+}
 
 try:
     raw = urllib.request.urlopen(req, timeout=12).read().decode('utf-8')
@@ -13,18 +21,42 @@ try:
     tg_token = data.get('telegram_bot_token') or os.getenv('TELEGRAM_BOT_TOKEN', '8867158689:AAFjM-QYCjMMMFA2_kpw98wCi-yzxzrACHA')
     tg_chat = data.get('telegram_chat_id') or os.getenv('TELEGRAM_CHAT_ID', '1239030524')
 
+    os.makedirs('data', exist_ok=True)
+    os.makedirs('logs', exist_ok=True)
+
+    # Clean up stale .env files
+    for old_env in glob.glob('.env.*'):
+        try:
+            os.remove(old_env)
+        except OSError:
+            pass
+
+    active_accounts = []
+
     for acc in accounts:
         aid = acc.get('id')
+        if not aid:
+            continue
+        # Skip explicitly disabled accounts or accounts without a login
+        if acc.get('enabled') is False:
+            continue
+        login = acc.get('mt5_login')
+        if not login or str(login).strip().lower() in ('none', '0', ''):
+            continue
+
+        rpyc_port = int(acc.get('rpyc_port', 18812))
+        container_name = PORT_TO_CONTAINER.get(rpyc_port, 'mt5_headless')
+
         env_file = f'.env.{aid}'
         is_w80 = aid == 'weekly80' or acc.get('weekly80_mode') is True
         strat_name = str(acc.get('name', aid)).replace(' ', '_')
         with open(env_file, 'w') as f:
             f.write(f'ACCOUNT_ID={aid}\n')
-            f.write(f'MT5_LOGIN={acc.get("mt5_login")}\n')
-            f.write(f'MT5_PASSWORD={acc.get("mt5_password")}\n')
+            f.write(f'MT5_LOGIN={login}\n')
+            f.write(f'MT5_PASSWORD={acc.get("mt5_password", "")}\n')
             f.write(f'MT5_SERVER={acc.get("mt5_server", "Exness-MT5Trial9")}\n')
             f.write(f'RPYC_HOST=localhost\n')
-            f.write(f'RPYC_PORT={acc.get("rpyc_port", 18812)}\n')
+            f.write(f'RPYC_PORT={rpyc_port}\n')
             f.write(f'MAGIC_NUMBER={acc.get("magic_number", 1001)}\n')
             f.write(f'SYMBOL={acc.get("symbol", "EURUSDm")}\n')
             f.write(f'STRATEGY_MODE={acc.get("strategy_mode", "STANDARD")}\n')
@@ -54,7 +86,22 @@ try:
             f.write(f'STATE_FILE=data/state_{aid}.json\n')
             f.write(f'LOG_FILE=logs/{aid}.log\n')
             f.write(f'CONTROL_WORKER_URL={worker_url}\n')
-    print(f'Successfully loaded {len(accounts)} dynamic account profiles with live Telegram credentials.')
+
+        active_accounts.append({
+            'id': aid,
+            'rpyc_port': rpyc_port,
+            'container': container_name,
+            'env_file': env_file,
+        })
+
+    with open('data/active_accounts.json', 'w') as f:
+        json.dump(active_accounts, f, indent=2)
+
+    with open('data/active_accounts.txt', 'w') as f:
+        for a in active_accounts:
+            f.write(f"{a['id']}\n")
+
+    print(f'Successfully loaded {len(active_accounts)} active dynamic account profiles with live Telegram credentials.')
 except Exception as e:
     print(f'Warning: Could not fetch accounts from Worker: {e}')
 

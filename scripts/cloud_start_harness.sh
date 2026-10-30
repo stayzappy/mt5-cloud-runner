@@ -91,56 +91,118 @@ cp '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/mt5cfg.ini' /mt5linux/mt5
     fi
 }
 
-echo "[Cloud Harness] Configuring auto-login mt5cfg.ini and Exness servers in containers..."
-inject_mt5_cfg mt5_headless .env.strategy_a
-inject_mt5_cfg mt5_headless_b .env.strategy_b
-inject_mt5_cfg mt5_headless_c .env.funded_500k
-inject_mt5_cfg mt5_headless_d .env.weekly80
-docker restart mt5_headless mt5_headless_b mt5_headless_c mt5_headless_d >/dev/null 2>&1 || true
-echo "[Cloud Harness] Waiting 15s for Wine initialization after restart..."
-sleep 15
-
-# 5. Wait for all 4 RPyC bridges to become ready
-echo "[Cloud Harness] Waiting for MT5 bridges on ports 18812, 18813, 18814 & 18815..."
+echo "[Cloud Harness] Configuring auto-login mt5cfg.ini and Exness servers for active accounts..."
 python3 -c "
-import socket, time, sys
-for port in [18812, 18813, 18814, 18815]:
-    ok = False
-    for _ in range(90):
-        try:
-            with socket.create_connection(('localhost', port), timeout=1.0):
-                ok = True
-                break
-        except (socket.error, OSError):
-            time.sleep(1.0)
-    if not ok:
-        print(f'Warning: Port {port} did not respond within timeout.', file=sys.stderr)
-print('All MT5 RPyC bridges are ready.')
+import json, subprocess, os, sys
+
+if not os.path.exists('data/active_accounts.json'):
+    print('[Cloud Harness] No active accounts found. Exiting cleanly.')
+    sys.exit(0)
+
+with open('data/active_accounts.json') as f:
+    active = json.load(f)
+
+for a in active:
+    cname = a['container']
+    env_file = a['env_file']
+    print(f'[Cloud Harness] Injecting config for {a[\"id\"]} into container {cname}...')
+    with open(env_file) as ef:
+        lines = dict(line.strip().split('=', 1) for line in ef if '=' in line)
+    login = lines.get('MT5_LOGIN', '')
+    pwd = lines.get('MT5_PASSWORD', '')
+    srv = lines.get('MT5_SERVER', 'Exness-MT5Trial9')
+
+    subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config'], stderr=subprocess.DEVNULL)
+    if os.path.exists('config/servers.dat'):
+        subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/servers.dat'], stderr=subprocess.DEVNULL)
+
+    cfg_content = f'''[Common]
+Login={login}
+Password={pwd}
+Server={srv}
+NewsEnable=0
+Profile=Blank
+ProxyEnable=0
+[Charts]
+MaxBars=1000000
+SelectOneClick=1
+[Experts]
+Enabled=1
+Account=0
+Profile=0
+Chart=0
+Api=0
+[Events]
+Enable=0
+NewsEnable=0
+'''
+    p = subprocess.Popen(['docker', 'exec', '-i', cname, 'sh', '-c', 'cat > \"/opt/wineprefix/drive_c/Program Files/MetaTrader 5/mt5cfg.ini\" && cp \"/opt/wineprefix/drive_c/Program Files/MetaTrader 5/mt5cfg.ini\" /mt5linux/mt5cfg.ini'], stdin=subprocess.PIPE)
+    p.communicate(input=cfg_content.encode())
+
+    print(f'[Cloud Harness] Restarting container {cname} to load MT5 configuration...')
+    subprocess.run(['docker', 'restart', cname], check=True)
 "
 
-# 6. Launch all 4 bots via compiled standalone binary
+# 5. Wait for active RPyC bridges to become fully ready (verifying real RPyC handshake)
+echo "[Cloud Harness] Validating active MT5 RPyC bridges..."
+python3 -c "
+import rpyc, time, sys, json
+
+if not os.path.exists('data/active_accounts.json'):
+    sys.exit(0)
+
+with open('data/active_accounts.json') as f:
+    active = json.load(f)
+
+for a in active:
+    port = int(a['rpyc_port'])
+    aid = a['id']
+    print(f'[Cloud Harness] Probing MT5 RPyC bridge on port {port} ({aid})...')
+    ok = False
+    for attempt in range(1, 46):
+        try:
+            conn = rpyc.classic.connect('localhost', port)
+            _ = conn.modules['MetaTrader5']
+            conn.close()
+            ok = True
+            print(f'[Cloud Harness] MT5 RPyC bridge on port {port} ({aid}) is READY (attempt {attempt}).')
+            break
+        except Exception:
+            time.sleep(2.0)
+    if not ok:
+        print(f'[Cloud Harness] ERROR: Bridge on port {port} for {aid} failed to initialize within 90s.', file=sys.stderr)
+        sys.exit(1)
+print('[Cloud Harness] All active MT5 RPyC bridges verified ready.')
+"
+
+# 6. Launch bots dynamically for active accounts
 WINDOW_FLAG="--window-mode"
 if [ "${CONTINUOUS_SESSION:-false}" = "true" ] || [ "${EVENT_NAME:-}" != "schedule" ]; then
-    echo "[Cloud Harness] Discretionary / Mobile session triggered (Event: ${EVENT_NAME:-manual}). Running in CONTINUOUS mode (staying alive in cloud for mobile trades)..."
+    echo "[Cloud Harness] Discretionary / Mobile session triggered (Event: ${EVENT_NAME:-manual}). Running in CONTINUOUS mode..."
     WINDOW_FLAG=""
 else
     echo "[Cloud Harness] Automated scheduled cron session. Running with auto-exit --window-mode..."
 fi
 
-echo "[Cloud Harness] Launching 4 bots via compiled native binary (Flags: '${WINDOW_FLAG:-continuous}')..."
-./mt5_trader_engine --env .env.strategy_a $WINDOW_FLAG &
-PID_A=$!
+PIDS=()
+if [ -f "data/active_accounts.txt" ]; then
+    while IFS= read -r aid; do
+        [ -z "$aid" ] && continue
+        env_file=".env.$aid"
+        if [ -f "$env_file" ]; then
+            echo "[Cloud Harness] Launching bot for $aid via native binary (Flags: '${WINDOW_FLAG:-continuous}')..."
+            ./mt5_trader_engine --env "$env_file" $WINDOW_FLAG &
+            PIDS+=($!)
+        fi
+    done < data/active_accounts.txt
+fi
 
-./mt5_trader_engine --env .env.strategy_b $WINDOW_FLAG &
-PID_B=$!
+if [ ${#PIDS[@]} -eq 0 ]; then
+    echo "[Cloud Harness] No active accounts to run. Clean exit."
+    exit 0
+fi
 
-./mt5_trader_engine --env .env.funded_500k $WINDOW_FLAG &
-PID_C=$!
-
-./mt5_trader_engine --env .env.weekly80 $WINDOW_FLAG &
-PID_D=$!
-
-echo "[Cloud Harness] 4 bots executing in background (PIDs: $PID_A, $PID_B, $PID_C, $PID_D)."
-wait "$PID_A" "$PID_B" "$PID_C" "$PID_D"
+echo "[Cloud Harness] ${#PIDS[@]} bot(s) executing in background (PIDs: ${PIDS[*]})."
+wait "${PIDS[@]}"
 echo "[Cloud Harness] Session complete. Clean exit."
 
