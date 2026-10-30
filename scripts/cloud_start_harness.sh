@@ -151,7 +151,7 @@ if ! python3 -c "import rpyc" 2>/dev/null; then
 fi
 
 python3 -c "
-import rpyc, time, sys, json
+import os, sys, time, json, rpyc
 
 if not os.path.exists('data/active_accounts.json'):
     sys.exit(0)
