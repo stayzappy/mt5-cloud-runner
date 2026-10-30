@@ -145,6 +145,11 @@ NewsEnable=0
 
 # 5. Wait for active RPyC bridges to become fully ready (verifying real RPyC handshake)
 echo "[Cloud Harness] Validating active MT5 RPyC bridges..."
+if ! python3 -c "import rpyc" 2>/dev/null; then
+    echo "[Cloud Harness] Installing rpyc for host bridge probe..."
+    pip3 install --quiet --break-system-packages rpyc 2>/dev/null || pip3 install --quiet rpyc
+fi
+
 python3 -c "
 import rpyc, time, sys, json
 
@@ -162,6 +167,7 @@ for a in active:
     for attempt in range(1, 46):
         try:
             conn = rpyc.classic.connect('localhost', port)
+            conn._config['sync_request_timeout'] = 15
             _ = conn.modules['MetaTrader5']
             conn.close()
             ok = True
