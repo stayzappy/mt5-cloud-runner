@@ -43,11 +43,17 @@ python3 scripts/sync_accounts.py
 
 
 # 4. Start Docker containers
-echo "[Cloud Harness] Starting Docker MT5 headless containers..."
-docker compose up -d
+if [ -f "data/active_services.txt" ] && [ -s "data/active_services.txt" ]; then
+    ACTIVE_SERVICES=$(tr '\n' ' ' < data/active_services.txt)
+    echo "[Cloud Harness] Starting active Docker MT5 headless container(s): $ACTIVE_SERVICES..."
+    docker compose up -d $ACTIVE_SERVICES
+else
+    echo "[Cloud Harness] Starting Docker MT5 headless containers..."
+    docker compose up -d
+fi
 
-echo "[Cloud Harness] Waiting 15s for Wine initialization..."
-sleep 15
+echo "[Cloud Harness] Waiting 10s for container initialization..."
+sleep 10
 
 # Helper: Auto-login injection into container
 inject_mt5_cfg() {
@@ -143,15 +149,10 @@ NewsEnable=0
     subprocess.run(['docker', 'restart', cname], check=True)
 "
 
-# 5. Wait for active RPyC bridges to become fully ready (verifying real RPyC handshake)
+# 5. Wait for active RPyC bridges to become fully ready
 echo "[Cloud Harness] Validating active MT5 RPyC bridges..."
-if ! python3 -c "import rpyc" 2>/dev/null; then
-    echo "[Cloud Harness] Installing rpyc for host bridge probe..."
-    pip3 install --quiet --break-system-packages rpyc 2>/dev/null || pip3 install --quiet rpyc
-fi
-
 python3 -c "
-import os, sys, time, json, rpyc
+import os, sys, time, json, subprocess
 
 if not os.path.exists('data/active_accounts.json'):
     sys.exit(0)
@@ -160,26 +161,27 @@ with open('data/active_accounts.json') as f:
     active = json.load(f)
 
 for a in active:
+    cname = a['container']
     port = int(a['rpyc_port'])
     aid = a['id']
-    print(f'[Cloud Harness] Probing MT5 RPyC bridge on port {port} ({aid})...')
+    print(f'[Cloud Harness] Probing MT5 RPyC bridge in container {cname} (port 18812 / host {port} for {aid})...')
     ok = False
     for attempt in range(1, 46):
-        try:
-            conn = rpyc.classic.connect('localhost', port)
-            conn._config['sync_request_timeout'] = 15
-            _ = conn.modules['MetaTrader5']
-            conn.close()
+        cmd = ['docker', 'exec', cname, 'python3', '-c', 'import socket; s = socket.socket(); s.settimeout(2.0); s.connect((\"127.0.0.1\", 18812)); s.close()']
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if res.returncode == 0:
             ok = True
-            print(f'[Cloud Harness] MT5 RPyC bridge on port {port} ({aid}) is READY (attempt {attempt}).')
+            print(f'[Cloud Harness] MT5 RPyC bridge in container {cname} is LISTENING and READY (attempt {attempt}).')
             break
-        except Exception:
-            time.sleep(2.0)
+        time.sleep(2.0)
     if not ok:
-        print(f'[Cloud Harness] ERROR: Bridge on port {port} for {aid} failed to initialize within 90s.', file=sys.stderr)
+        print(f'[Cloud Harness] ERROR: Container {cname} bridge failed to initialize within 90s.', file=sys.stderr)
+        print(f'=== Container logs for {cname} ===', file=sys.stderr)
+        subprocess.run(['docker', 'logs', '--tail', '50', cname])
         sys.exit(1)
 print('[Cloud Harness] All active MT5 RPyC bridges verified ready.')
 "
+sleep 3
 
 # 6. Launch bots dynamically for active accounts
 WINDOW_FLAG="--window-mode"

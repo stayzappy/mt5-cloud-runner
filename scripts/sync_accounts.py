@@ -14,6 +14,13 @@ PORT_TO_CONTAINER = {
     18815: 'mt5_headless_d',
 }
 
+PORT_TO_SERVICE = {
+    18812: 'mt5',
+    18813: 'mt5_b',
+    18814: 'mt5_c',
+    18815: 'mt5_d',
+}
+
 try:
     raw = urllib.request.urlopen(req, timeout=12).read().decode('utf-8')
     data = json.loads(raw)
@@ -87,10 +94,13 @@ try:
             f.write(f'LOG_FILE=logs/{aid}.log\n')
             f.write(f'CONTROL_WORKER_URL={worker_url}\n')
 
+        service_name = PORT_TO_SERVICE.get(rpyc_port, 'mt5')
+
         active_accounts.append({
             'id': aid,
             'rpyc_port': rpyc_port,
             'container': container_name,
+            'service': service_name,
             'env_file': env_file,
         })
 
@@ -100,6 +110,11 @@ try:
     with open('data/active_accounts.txt', 'w') as f:
         for a in active_accounts:
             f.write(f"{a['id']}\n")
+
+    with open('data/active_services.txt', 'w') as f:
+        services = sorted(set(a['service'] for a in active_accounts))
+        for s in services:
+            f.write(f"{s}\n")
 
     print(f'Successfully loaded {len(active_accounts)} active dynamic account profiles with live Telegram credentials.')
 except Exception as e:
