@@ -14,6 +14,11 @@ on:
     types: [engine_updated, trigger_session]
   workflow_dispatch:
     inputs:
+      force:
+        description: 'Force run (bypass weekend/holiday checks)'
+        required: false
+        default: false
+        type: boolean
       dry_run:
         description: 'Simulation mode (--dry-run)'
         required: false
@@ -48,6 +53,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || '8867158689:AAFjM-QYCjMMMFA2_kpw98wCi-yzxzrACHA' }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || '1239030524' }}
           EVENT_NAME: ${{ github.event_name }}
+          FORCE_RUN: ${{ inputs.force || github.event.client_payload.force || 'false' }}
         run: |
           bash scripts/cloud_start_harness.sh
 

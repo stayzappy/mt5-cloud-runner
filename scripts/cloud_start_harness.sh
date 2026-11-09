@@ -16,8 +16,8 @@ echo "   STARTING MT5 CLOUD RUNNER HARNESS (HEADLESS MULTI-ACCOUNT)"
 echo "   Host Time (UTC): $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 echo "===================================================================="
 
-# Weekend Dormancy Check (Saturday / Sunday)
-DAY_OF_WEEK=$(date -u +%u)
+# Weekend Dormancy Check (Saturday / Sunday in WAT)
+DAY_OF_WEEK=$(TZ="Africa/Lagos" date +%u)
 if [ "$DAY_OF_WEEK" -ge 6 ] && [ "${FORCE_RUN:-false}" != "true" ]; then
     echo "[Cloud Harness] Weekend Dormancy: Markets closed. Standby until Monday 00:15 WAT. Clean exit."
     exit 0
@@ -69,6 +69,10 @@ inject_mt5_cfg() {
     docker exec "$cname" mkdir -p "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config" 2>/dev/null || true
     if [ -f "config/servers.dat" ]; then
         docker cp "config/servers.dat" "$cname:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/servers.dat" 2>/dev/null || true
+    fi
+    if [ -d "config/bases/AiwaCapital-Server" ]; then
+        docker exec "$cname" mkdir -p "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases" 2>/dev/null || true
+        docker cp "config/bases/AiwaCapital-Server" "$cname:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases/" 2>/dev/null || true
     fi
 
     if [ -n "$login_val" ] && [ -n "$pwd_val" ]; then

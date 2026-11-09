@@ -86,8 +86,24 @@ try:
             f.write(f'BE_LOCK_PIPS={acc.get("be_lock_pips", 0.0 if is_w80 else 0.2)}\n')
             f.write(f'PROFIT_LOCK_TRIGGER_PIPS={acc.get("profit_lock_trigger_pips", 99.0)}\n')
             f.write(f'PROFIT_LOCK_SL_PIPS={acc.get("profit_lock_sl_pips", 99.0)}\n')
-            f.write(f'HOR_BARS={acc.get("hor_bars", 32)}\n')
-            f.write(f'SPREAD_PIPS={acc.get("spread_pips", 0.8)}\n')
+            f.write(f'HOR_BARS={acc.get("hor_bars", 48 if "XAU" in str(acc.get("symbol", "")).upper() else 32)}\n')
+            f.write(f'SPREAD_PIPS={acc.get("spread_pips", 2.4 if "XAU" in str(acc.get("symbol", "")).upper() else 0.8)}\n')
+            f.write(f'MAX_SPREAD_PIPS={acc.get("max_spread_pips", 5.0 if "XAU" in str(acc.get("symbol", "")).upper() else 1.0)}\n')
+            if acc.get("target_trade_payout"):
+                f.write(f'TARGET_TRADE_PAYOUT={acc.get("target_trade_payout")}\n')
+            if acc.get("max_single_trade_payout"):
+                f.write(f'MAX_SINGLE_TRADE_PAYOUT={acc.get("max_single_trade_payout")}\n')
+            if acc.get("max_daily_wins"):
+                f.write(f'MAX_DAILY_WINS={acc.get("max_daily_wins")}\n')
+            if acc.get("max_weekly_wins"):
+                f.write(f'MAX_WEEKLY_WINS={acc.get("max_weekly_wins")}\n')
+            if acc.get("reward_ratio"):
+                f.write(f'REWARD_RATIO={acc.get("reward_ratio", 3.0)}\n')
+            if acc.get("kinetic_fraction"):
+                f.write(f'KINETIC_FRACTION={acc.get("kinetic_fraction", 0.12)}\n')
+            f.write(f'SESSION_START_TIME={acc.get("session_start_time", "07:00")}\n')
+            f.write(f'ENTRY_CUTOFF_TIME={acc.get("entry_cutoff_time", "17:30")}\n')
+            f.write(f'EOD_CLOSE_TIME={acc.get("eod_close_time", "21:15")}\n')
             f.write(f'TELEGRAM_BOT_TOKEN={tg_token}\n')
             f.write(f'TELEGRAM_CHAT_ID={tg_chat}\n')
             f.write(f'STATE_FILE=data/state_{aid}.json\n')
