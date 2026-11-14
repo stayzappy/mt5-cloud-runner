@@ -196,8 +196,22 @@ else
     echo "[Cloud Harness] Automated scheduled cron session. Running with auto-exit --window-mode..."
 fi
 
-PIDS=()
+NUM_ACCOUNTS=0
 if [ -f "data/active_accounts.txt" ]; then
+    NUM_ACCOUNTS=$(grep -c '[^[:space:]]' data/active_accounts.txt || echo 0)
+fi
+
+if [ "$NUM_ACCOUNTS" -eq 0 ]; then
+    echo "[Cloud Harness] No active accounts to run. Clean exit."
+    exit 0
+fi
+
+# Multi-account: Run Unified Master-Slave Fleet Runner to conserve cloud runner resources
+if [ "$NUM_ACCOUNTS" -gt 1 ]; then
+    echo "[Cloud Harness] Launching Unified Master-Slave Fleet Runner ($NUM_ACCOUNTS accounts, Flags: '${WINDOW_FLAG:-continuous}')..."
+    ./mt5_trader_engine --fleet $WINDOW_FLAG
+else
+    PIDS=()
     while IFS= read -r aid; do
         [ -z "$aid" ] && continue
         env_file=".env.$aid"
@@ -207,14 +221,8 @@ if [ -f "data/active_accounts.txt" ]; then
             PIDS+=($!)
         fi
     done < data/active_accounts.txt
+    echo "[Cloud Harness] ${#PIDS[@]} bot(s) executing in background (PIDs: ${PIDS[*]})."
+    wait "${PIDS[@]}"
 fi
-
-if [ ${#PIDS[@]} -eq 0 ]; then
-    echo "[Cloud Harness] No active accounts to run. Clean exit."
-    exit 0
-fi
-
-echo "[Cloud Harness] ${#PIDS[@]} bot(s) executing in background (PIDs: ${PIDS[*]})."
-wait "${PIDS[@]}"
 echo "[Cloud Harness] Session complete. Clean exit."
 
