@@ -74,6 +74,7 @@ try:
             f.write(f'MAX_DRAWDOWN={acc.get("max_drawdown", 200000.0)}\n')
             f.write(f'EQUITY_HARD_FLOOR={acc.get("equity_hard_floor", acc.get("hard_floor", 400000.0 if aid == "funded_500k" else 0.0))}\n')
             f.write(f'GOAL_TARGET_PCT={acc.get("goal_target_pct", 15.0)}\n')
+            f.write(f'GOAL_EQUITY_CEILING={acc.get("goal_equity_ceiling", float(acc.get("top_anchor", 200000.0)) * (1.0 + float(acc.get("goal_target_pct", 15.0)) / 100.0))}\n')
             f.write(f'ACTIVE_STRATEGY={acc.get("active_strategy", "FINAL_18" if is_w80 else "7_VARIATIONS")}\n')
             f.write(f'ACCOUNT_TYPE={acc.get("account_type", "ACE_PROP_FUNDED" if aid == "funded_500k" else "LEGACY")}\n')
             f.write(f'HARD_FLOOR={acc.get("hard_floor", 400000.0 if aid == "funded_500k" else 0.0)}\n')
