@@ -125,6 +125,12 @@ for a in active:
     subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config'], stderr=subprocess.DEVNULL)
     if os.path.exists('config/servers.dat'):
         subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/servers.dat'], stderr=subprocess.DEVNULL)
+    if os.path.exists('config/bases'):
+        subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases'], stderr=subprocess.DEVNULL)
+        for b_name in os.listdir('config/bases'):
+            b_path = os.path.join('config/bases', b_name)
+            if os.path.isdir(b_path):
+                subprocess.run(['docker', 'cp', b_path, f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases/'], stderr=subprocess.DEVNULL)
 
     cfg_content = f'''[Common]
 Login={login}
