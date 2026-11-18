@@ -25,8 +25,8 @@ try:
     raw = urllib.request.urlopen(req, timeout=12).read().decode('utf-8')
     data = json.loads(raw)
     accounts = data.get('accounts', [])
-    tg_token = data.get('telegram_bot_token') or os.getenv('TELEGRAM_BOT_TOKEN', '8867158689:AAFjM-QYCjMMMFA2_kpw98wCi-yzxzrACHA')
-    tg_chat = data.get('telegram_chat_id') or os.getenv('TELEGRAM_CHAT_ID', '1239030524')
+    tg_token = data.get('telegram_bot_token') or os.getenv('TELEGRAM_BOT_TOKEN', '')
+    tg_chat = data.get('telegram_chat_id') or os.getenv('TELEGRAM_CHAT_ID', '')
 
     os.makedirs('data', exist_ok=True)
     os.makedirs('logs', exist_ok=True)
