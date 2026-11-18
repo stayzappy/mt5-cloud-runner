@@ -3,4 +3,8 @@ data/
 logs/
 *.tar.gz
 mt5_trader_engine
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
 
