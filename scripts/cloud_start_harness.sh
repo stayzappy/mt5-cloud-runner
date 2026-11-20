@@ -74,12 +74,18 @@ inject_mt5_cfg() {
     fi
 
     docker exec "$cname" mkdir -p "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config" 2>/dev/null || true
-    if [ -f "config/servers.dat" ]; then
+    if [ -d "config/profiles/$cname/Config" ]; then
+        docker cp "config/profiles/$cname/Config/." "$cname:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/" 2>/dev/null || true
+    elif [ -f "config/servers.dat" ]; then
         docker cp "config/servers.dat" "$cname:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/servers.dat" 2>/dev/null || true
     fi
-    if [ -d "config/bases/AiwaCapital-Server" ]; then
+    if [ -d "config/bases" ]; then
         docker exec "$cname" mkdir -p "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases" 2>/dev/null || true
-        docker cp "config/bases/AiwaCapital-Server" "$cname:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases/" 2>/dev/null || true
+        for b_dir in config/bases/*; do
+            if [ -d "$b_dir" ]; then
+                docker cp "$b_dir" "$cname:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases/" 2>/dev/null || true
+            fi
+        done
     fi
 
     if [ -n "$login_val" ] && [ -n "$pwd_val" ]; then
@@ -136,7 +142,10 @@ for a in active:
         srv = 'Exness-MT5Trial9'
 
     subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config'], stderr=subprocess.DEVNULL)
-    if os.path.exists('config/servers.dat'):
+    profile_cfg = os.path.join('config', 'profiles', cname, 'Config')
+    if os.path.isdir(profile_cfg):
+        subprocess.run(['docker', 'cp', f'{profile_cfg}/.', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/'], stderr=subprocess.DEVNULL)
+    elif os.path.exists('config/servers.dat'):
         subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/servers.dat'], stderr=subprocess.DEVNULL)
     if os.path.exists('config/bases'):
         subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases'], stderr=subprocess.DEVNULL)
