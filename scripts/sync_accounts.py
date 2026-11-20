@@ -63,11 +63,11 @@ try:
             f.write(f'MT5_PASSWORD={acc.get("mt5_password", "")}\n')
             srv = acc.get("mt5_server", "Exness-MT5Trial9")
             if "aiwa" in srv.lower() or "aiwa" in aid.lower():
-                srv = "AiwaCapital-Server"
+                srv = "198.244.200.119:443"
             elif "real21" in srv.lower() or "cent" in aid.lower():
-                srv = "Exness-MT5Real21"
-            elif "trial9" in srv.lower() or "trial" in srv.lower():
-                srv = "Exness-MT5Trial9"
+                srv = "96.0.47.188:443"
+            elif "trial9" in srv.lower() or "trial" in srv.lower() or "funded" in aid.lower():
+                srv = "96.0.46.31:443"
             f.write(f'MT5_SERVER={srv}\n')
             f.write(f'RPYC_HOST=localhost\n')
             f.write(f'RPYC_PORT={rpyc_port}\n')
