@@ -140,18 +140,40 @@ for a in active:
     cname = a['container']
     env_file = a['env_file']
     print(f'[Cloud Harness] Upgrading MT5 terminal in container {cname} to latest build (>= 6000)...')
-    subprocess.run(['docker', 'cp', '/tmp/mt5setup.exe', f'{cname}:/tmp/mt5setup.exe'], stderr=subprocess.DEVNULL)
+    subprocess.run(['docker', 'cp', '/tmp/mt5setup.exe', f'{cname}:/tmp/mt5setup.exe'], check=True)
     update_script = '''
         wine taskkill /IM terminal64.exe /F 2>/dev/null || true
         wine taskkill /IM python.exe /F 2>/dev/null || true
+        pkill -9 -f terminal64 2>/dev/null || true
+        pkill -9 -f python 2>/dev/null || true
         sleep 1
         export DISPLAY=:100
-        wine /tmp/mt5setup.exe /auto
-        sleep 3
+        echo "[Upgrade] Starting wine /tmp/mt5setup.exe /auto in background..."
+        wine /tmp/mt5setup.exe /auto &
+        SETUP_PID=$!
+        for i in $(seq 1 45); do
+            sleep 2
+            PROCS=$(ps -ef | grep -iE "setup|terminal64" | grep -v grep || true)
+            echo "[Upgrade step $i] Active processes: $PROCS"
+            if echo "$PROCS" | grep -iq "terminal64.exe"; then
+                echo "[Upgrade] Installer completed successfully and launched terminal64.exe!"
+                break
+            fi
+            if ! kill -0 $SETUP_PID 2>/dev/null && [ $i -ge 8 ]; then
+                echo "[Upgrade] Installer process completed."
+                break
+            fi
+        done
+        sleep 2
+        wine taskkill /IM mt5setup.exe /F 2>/dev/null || true
         wine taskkill /IM terminal64.exe /F 2>/dev/null || true
+        pkill -9 -f mt5setup 2>/dev/null || true
+        pkill -9 -f terminal64 2>/dev/null || true
         rm -f /tmp/mt5setup.exe
+        echo "[Upgrade] Post-upgrade files:"
+        ls -la "/opt/wineprefix/drive_c/Program Files/MetaTrader 5"
     '''
-    subprocess.run(['docker', 'exec', cname, 'sh', '-c', update_script], stderr=subprocess.DEVNULL)
+    subprocess.run(['docker', 'exec', cname, 'sh', '-c', update_script])
 
     print(f'[Cloud Harness] Injecting config for {a["id"]} into container {cname}...')
     with open(env_file) as ef:
