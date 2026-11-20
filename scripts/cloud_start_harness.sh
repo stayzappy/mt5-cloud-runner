@@ -133,10 +133,27 @@ if not os.path.exists('data/active_accounts.json'):
 with open('data/active_accounts.json') as f:
     active = json.load(f)
 
+print('[Cloud Harness] Fetching latest official MT5 setup (build 6000+) to satisfy broker version requirements...')
+subprocess.run(['curl', '-sL', 'https://download.mql5.com/cdn/web/metaquotes.ltd/mt5/mt5setup.exe', '-o', '/tmp/mt5setup.exe'], check=True)
+
 for a in active:
     cname = a['container']
     env_file = a['env_file']
-    print(f'[Cloud Harness] Injecting config for {a[\"id\"]} into container {cname}...')
+    print(f'[Cloud Harness] Upgrading MT5 terminal in container {cname} to latest build (>= 6000)...')
+    subprocess.run(['docker', 'cp', '/tmp/mt5setup.exe', f'{cname}:/tmp/mt5setup.exe'], stderr=subprocess.DEVNULL)
+    update_script = '''
+        wine taskkill /IM terminal64.exe /F 2>/dev/null || true
+        wine taskkill /IM python.exe /F 2>/dev/null || true
+        sleep 1
+        export DISPLAY=:100
+        wine /tmp/mt5setup.exe /auto
+        sleep 3
+        wine taskkill /IM terminal64.exe /F 2>/dev/null || true
+        rm -f /tmp/mt5setup.exe
+    '''
+    subprocess.run(['docker', 'exec', cname, 'sh', '-c', update_script], stderr=subprocess.DEVNULL)
+
+    print(f'[Cloud Harness] Injecting config for {a["id"]} into container {cname}...')
     with open(env_file) as ef:
         lines = dict(line.strip().split('=', 1) for line in ef if '=' in line)
     login = lines.get('MT5_LOGIN', '')
