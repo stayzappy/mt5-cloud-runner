@@ -170,7 +170,7 @@ NewsEnable=0
 
 # 5. Wait for active RPyC bridges to become fully ready
 echo "[Cloud Harness] Validating active MT5 RPyC bridges..."
-python3 -c "
+python3 << 'EOF'
 import os, sys, time, json, subprocess
 
 if not os.path.exists('data/active_accounts.json'):
@@ -186,7 +186,7 @@ for a in active:
     print(f'[Cloud Harness] Probing MT5 RPyC bridge in container {cname} (port 18812 / host {port} for {aid})...')
     ok = False
     for attempt in range(1, 46):
-        cmd = ['docker', 'exec', cname, 'python3', '-c', 'import socket; s = socket.socket(); s.settimeout(2.0); s.connect((\"127.0.0.1\", 18812)); s.close()']
+        cmd = ['docker', 'exec', cname, 'python3', '-c', 'import socket; s = socket.socket(); s.settimeout(2.0); s.connect(("127.0.0.1", 18812)); s.close()']
         res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if res.returncode == 0:
             ok = True
@@ -215,7 +215,7 @@ for a in active:
             pass
         sys.exit(1)
 print('[Cloud Harness] All active MT5 RPyC bridges verified ready.')
-"
+EOF
 sleep 3
 
 # 6. Launch bots dynamically for active accounts
