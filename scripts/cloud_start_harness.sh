@@ -197,6 +197,22 @@ for a in active:
         print(f'[Cloud Harness] ERROR: Container {cname} bridge failed to initialize within 90s.', file=sys.stderr)
         print(f'=== Container logs for {cname} ===', file=sys.stderr)
         subprocess.run(['docker', 'logs', '--tail', '50', cname])
+        try:
+            tg_msg = (
+                f"🚨 <b>CLOUD RUNNER BOOT FAULT</b>\n\n"
+                f"👤 <b>Account:</b> {aid} (Container: <code>{cname}</code>)\n"
+                f"❌ <b>Error:</b> MT5 RPyC bridge failed to bind on port 18812 within 90s!\n"
+                f"👉 <i>Runner terminated early to prevent hanging. Check runner logs.</i>"
+            )
+            subprocess.run([
+                "curl", "-s", "-m", "5", "-X", "POST",
+                "https://api.telegram.org/bot8867158689:AAENm3RlSVivy3ZDlqngO7v0fzNBwpBGG_M/sendMessage",
+                "-d", "chat_id=1239030524",
+                "-d", f"text={tg_msg}",
+                "-d", "parse_mode=HTML"
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
         sys.exit(1)
 print('[Cloud Harness] All active MT5 RPyC bridges verified ready.')
 "
