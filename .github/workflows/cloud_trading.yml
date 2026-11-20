@@ -24,6 +24,11 @@ on:
         required: false
         default: false
         type: boolean
+      target_account:
+        description: 'Single target account (e.g. personal_cent) or empty for all'
+        required: false
+        default: 'personal_cent'
+        type: string
 
 concurrency:
   group: mt5-cloud-session
@@ -54,6 +59,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           EVENT_NAME: ${{ github.event_name }}
           FORCE_RUN: ${{ inputs.force || github.event.client_payload.force || 'false' }}
+          TARGET_ACCOUNT: ${{ inputs.target_account || github.event.client_payload.target_account || '' }}
         run: |
           bash scripts/cloud_start_harness.sh
 

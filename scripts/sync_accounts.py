@@ -38,11 +38,14 @@ try:
         except OSError:
             pass
 
+    target_filter = os.getenv('TARGET_ACCOUNT', '').strip()
     active_accounts = []
 
     for acc in accounts:
         aid = acc.get('id')
         if not aid:
+            continue
+        if target_filter and aid != target_filter:
             continue
         # Skip explicitly disabled accounts or accounts without a login
         if acc.get('enabled') is False:
@@ -63,11 +66,11 @@ try:
             f.write(f'MT5_PASSWORD={acc.get("mt5_password", "")}\n')
             srv = acc.get("mt5_server", "Exness-MT5Trial9")
             if "aiwa" in srv.lower() or "aiwa" in aid.lower():
-                srv = "198.244.200.119:443"
+                srv = "AiwaCapital-Server"
             elif "real21" in srv.lower() or "cent" in aid.lower():
-                srv = "96.0.47.188:443"
+                srv = "Exness-MT5Real21"
             elif "trial9" in srv.lower() or "trial" in srv.lower() or "funded" in aid.lower():
-                srv = "96.0.46.31:443"
+                srv = "Exness-MT5Trial9"
             f.write(f'MT5_SERVER={srv}\n')
             f.write(f'RPYC_HOST=localhost\n')
             f.write(f'RPYC_PORT={rpyc_port}\n')
