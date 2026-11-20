@@ -74,16 +74,24 @@ inject_mt5_cfg() {
     fi
 
     docker exec "$cname" mkdir -p "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config" 2>/dev/null || true
+    docker exec "$cname" touch "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/portable.txt" 2>/dev/null || true
+    docker exec "$cname" sed -i 's/terminal64.exe \/config:mt5cfg.ini/terminal64.exe \/portable \/config:mt5cfg.ini/g' /mt5linux/start.sh 2>/dev/null || true
+    docker exec "$cname" mkdir -p "/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/config" 2>/dev/null || true
+    docker exec "$cname" mkdir -p "/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/bases" 2>/dev/null || true
+
     if [ -d "config/profiles/$cname/Config" ]; then
         docker cp "config/profiles/$cname/Config/." "$cname:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/" 2>/dev/null || true
+        docker cp "config/profiles/$cname/Config/." "$cname:/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/config/" 2>/dev/null || true
     elif [ -f "config/servers.dat" ]; then
         docker cp "config/servers.dat" "$cname:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/servers.dat" 2>/dev/null || true
+        docker cp "config/servers.dat" "$cname:/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/config/servers.dat" 2>/dev/null || true
     fi
     if [ -d "config/bases" ]; then
         docker exec "$cname" mkdir -p "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases" 2>/dev/null || true
         for b_dir in config/bases/*; do
             if [ -d "$b_dir" ]; then
                 docker cp "$b_dir" "$cname:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases/" 2>/dev/null || true
+                docker cp "$b_dir" "$cname:/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/bases/" 2>/dev/null || true
             fi
         done
     fi
@@ -142,17 +150,25 @@ for a in active:
         srv = 'Exness-MT5Trial9'
 
     subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config'], stderr=subprocess.DEVNULL)
+    subprocess.run(['docker', 'exec', cname, 'touch', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/portable.txt'], stderr=subprocess.DEVNULL)
+    subprocess.run(['docker', 'exec', cname, 'sed', '-i', 's/terminal64.exe \/config:mt5cfg.ini/terminal64.exe \/portable \/config:mt5cfg.ini/g', '/mt5linux/start.sh'], stderr=subprocess.DEVNULL)
+    subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', '/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/config'], stderr=subprocess.DEVNULL)
+    subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', '/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/bases'], stderr=subprocess.DEVNULL)
+
     profile_cfg = os.path.join('config', 'profiles', cname, 'Config')
     if os.path.isdir(profile_cfg):
         subprocess.run(['docker', 'cp', f'{profile_cfg}/.', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/'], stderr=subprocess.DEVNULL)
+        subprocess.run(['docker', 'cp', f'{profile_cfg}/.', f'{cname}:/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/config/'], stderr=subprocess.DEVNULL)
     elif os.path.exists('config/servers.dat'):
         subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/servers.dat'], stderr=subprocess.DEVNULL)
+        subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/config/servers.dat'], stderr=subprocess.DEVNULL)
     if os.path.exists('config/bases'):
         subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases'], stderr=subprocess.DEVNULL)
         for b_name in os.listdir('config/bases'):
             b_path = os.path.join('config/bases', b_name)
             if os.path.isdir(b_path):
                 subprocess.run(['docker', 'cp', b_path, f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases/'], stderr=subprocess.DEVNULL)
+                subprocess.run(['docker', 'cp', b_path, f'{cname}:/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/bases/'], stderr=subprocess.DEVNULL)
 
     cfg_content = f'''[Common]
 Login={login}
