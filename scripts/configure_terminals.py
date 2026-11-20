@@ -5,57 +5,85 @@ import os
 import sys
 import time
 
+# Ensure real-time unbuffered logging in CI
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
+
+UPGRADE_SCRIPT_CONTENT = '''#!/usr/bin/env bash
+set -e
+export WINEPREFIX="/opt/wineprefix"
+export DISPLAY=":100"
+
+echo "[Upgrade $(date '+%H:%M:%S')] Terminating running MT5 and Python..."
+wine taskkill /IM terminal64.exe /F 2>/dev/null || true
+wine taskkill /IM python.exe /F 2>/dev/null || true
+pkill -9 -f terminal64 2>/dev/null || true
+pkill -9 -f python 2>/dev/null || true
+sleep 2
+
+echo "[Upgrade $(date '+%H:%M:%S')] Pre-upgrade terminal64.exe:"
+ls -la "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/terminal64.exe" || true
+
+echo "[Upgrade $(date '+%H:%M:%S')] Launching mt5setup.exe /auto..."
+wine /tmp/mt5setup.exe /auto /path:"C:\\\\Program Files\\\\MetaTrader 5" &
+SETUP_PID=$!
+echo "[Upgrade $(date '+%H:%M:%S')] mt5setup.exe spawned with PID $SETUP_PID. Monitoring installation..."
+
+for step in $(seq 1 40); do
+    sleep 2
+    RUNNING_PROCS=$(ps aux | grep -iE "setup|terminal64" | grep -v grep || true)
+    echo "[Upgrade $(date '+%H:%M:%S')] Step $step procs: $RUNNING_PROCS"
+    if echo "$RUNNING_PROCS" | grep -iq "terminal64.exe"; then
+        echo "[Upgrade $(date '+%H:%M:%S')] Installer completed and spawned terminal64.exe!"
+        break
+    fi
+    if ! kill -0 $SETUP_PID 2>/dev/null; then
+        echo "[Upgrade $(date '+%H:%M:%S')] mt5setup.exe finished."
+        break
+    fi
+done
+
+sleep 3
+echo "[Upgrade $(date '+%H:%M:%S')] Cleaning up installer and terminal processes..."
+wine taskkill /IM mt5setup.exe /F 2>/dev/null || true
+wine taskkill /IM terminal64.exe /F 2>/dev/null || true
+pkill -9 -f mt5setup 2>/dev/null || true
+pkill -9 -f terminal64 2>/dev/null || true
+rm -f /tmp/mt5setup.exe
+sleep 2
+
+echo "[Upgrade $(date '+%H:%M:%S')] Post-upgrade terminal64.exe:"
+ls -la "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/terminal64.exe" || true
+'''
+
 def main():
     if not os.path.exists('data/active_accounts.json'):
-        print('[Cloud Harness] No active accounts found. Exiting cleanly.')
+        print('[Cloud Harness] No active accounts found. Exiting cleanly.', flush=True)
         sys.exit(0)
 
     with open('data/active_accounts.json') as f:
         active = json.load(f)
 
-    print('[Cloud Harness] Fetching latest official MT5 setup (build 6000+) to satisfy broker version requirements...')
+    print('[Cloud Harness] Fetching latest official MT5 setup (build 6000+) to satisfy broker requirements...', flush=True)
     subprocess.run(['curl', '-sL', 'https://download.mql5.com/cdn/web/metaquotes.ltd/mt5/mt5setup.exe', '-o', '/tmp/mt5setup.exe'], check=True)
+
+    with open('/tmp/upgrade_mt5.sh', 'w') as f:
+        f.write(UPGRADE_SCRIPT_CONTENT)
 
     for a in active:
         cname = a['container']
         env_file = a['env_file']
-        print(f'[Cloud Harness] Upgrading MT5 terminal in container {cname} to latest build (>= 6000)...')
+        print(f'[Cloud Harness] Upgrading MT5 terminal in container {cname} to latest build (>= 6000)...', flush=True)
         subprocess.run(['docker', 'cp', '/tmp/mt5setup.exe', f'{cname}:/tmp/mt5setup.exe'], check=True)
-        update_script = '''
-            wine taskkill /IM terminal64.exe /F 2>/dev/null || true
-            wine taskkill /IM python.exe /F 2>/dev/null || true
-            pkill -9 -f terminal64 2>/dev/null || true
-            pkill -9 -f python 2>/dev/null || true
-            sleep 1
-            export DISPLAY=:100
-            echo "[Upgrade] Starting wine /tmp/mt5setup.exe /auto in background..."
-            wine /tmp/mt5setup.exe /auto &
-            SETUP_PID=$!
-            for i in $(seq 1 45); do
-                sleep 2
-                PROCS=$(ps -ef | grep -iE "setup|terminal64" | grep -v grep || true)
-                echo "[Upgrade step $i] Active processes: $PROCS"
-                if echo "$PROCS" | grep -iq "terminal64.exe"; then
-                    echo "[Upgrade] Installer completed successfully and launched terminal64.exe!"
-                    break
-                fi
-                if ! kill -0 $SETUP_PID 2>/dev/null && [ $i -ge 8 ]; then
-                    echo "[Upgrade] Installer process completed."
-                    break
-                fi
-            done
-            sleep 2
-            wine taskkill /IM mt5setup.exe /F 2>/dev/null || true
-            wine taskkill /IM terminal64.exe /F 2>/dev/null || true
-            pkill -9 -f mt5setup 2>/dev/null || true
-            pkill -9 -f terminal64 2>/dev/null || true
-            rm -f /tmp/mt5setup.exe
-            echo "[Upgrade] Post-upgrade files:"
-            ls -la "/opt/wineprefix/drive_c/Program Files/MetaTrader 5"
-        '''
-        subprocess.run(['docker', 'exec', cname, 'sh', '-c', update_script])
+        subprocess.run(['docker', 'cp', '/tmp/upgrade_mt5.sh', f'{cname}:/tmp/upgrade_mt5.sh'], check=True)
+        subprocess.run(['docker', 'exec', cname, 'chmod', '+x', '/tmp/upgrade_mt5.sh'], check=True)
+        
+        # Execute upgrade script and stream output
+        res = subprocess.run(['docker', 'exec', cname, 'bash', '/tmp/upgrade_mt5.sh'])
+        if res.returncode != 0:
+            print(f'[Cloud Harness] WARNING: Upgrade script exited with code {res.returncode}', flush=True)
 
-        print(f'[Cloud Harness] Injecting config for {a["id"]} into container {cname}...')
+        print(f'[Cloud Harness] Injecting config for {a["id"]} into container {cname}...', flush=True)
         with open(env_file) as ef:
             lines = dict(line.strip().split('=', 1) for line in ef if '=' in line)
         login = lines.get('MT5_LOGIN', '')
@@ -119,7 +147,7 @@ NewsEnable=0
         p = subprocess.Popen(['docker', 'exec', '-i', cname, 'sh', '-c', 'cat > \"/opt/wineprefix/drive_c/Program Files/MetaTrader 5/mt5cfg.ini\" && cp \"/opt/wineprefix/drive_c/Program Files/MetaTrader 5/mt5cfg.ini\" /mt5linux/mt5cfg.ini'], stdin=subprocess.PIPE)
         p.communicate(input=cfg_content.encode())
 
-        print(f'[Cloud Harness] Restarting container {cname} to load MT5 configuration...')
+        print(f'[Cloud Harness] Restarting container {cname} to load MT5 configuration...', flush=True)
         subprocess.run(['docker', 'restart', cname], check=True)
 
 if __name__ == '__main__':
