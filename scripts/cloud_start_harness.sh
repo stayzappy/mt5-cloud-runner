@@ -229,10 +229,15 @@ for a in active:
             print(f'[Cloud Harness] MT5 RPyC bridge in container {cname} is LISTENING and READY (attempt {attempt}).')
             # Diagnostic: Dump MT5 internal terminal logs to inspect broker connection state
             print(f'=== MT5 Terminal Logs for {cname} ({aid}) ===')
-            log_res = subprocess.run(['docker', 'exec', cname, 'sh', '-c', 'find /opt/wineprefix -name "*.log" -exec echo "--- LOG: {} ---" \\; -exec cat {} \\; 2>/dev/null || echo "No log found"'], capture_output=True, text=True)
-            if log_res.stdout:
-                for line in log_res.stdout.splitlines()[-50:]:
-                    print(f'   [{cname}] {line}')
+            log_res = subprocess.run(['docker', 'exec', cname, 'sh', '-c', 'find /opt/wineprefix -name "*.log" -exec echo "--- LOG: {} ---" \\; -exec cat {} \\; 2>/dev/null || echo "No log found"'], capture_output=True)
+            raw_bytes = log_res.stdout or b''
+            try:
+                decoded = raw_bytes.decode('utf-16le', errors='replace')
+            except Exception:
+                decoded = raw_bytes.decode('utf-8', errors='replace')
+            for line in decoded.splitlines()[-50:]:
+                if line.strip():
+                    print(f'   [{cname}] {line.strip()}')
             break
         time.sleep(2.0)
     if not ok:
