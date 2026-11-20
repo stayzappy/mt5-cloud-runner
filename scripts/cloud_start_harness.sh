@@ -67,6 +67,8 @@ inject_mt5_cfg() {
     srv_val=$(grep '^MT5_SERVER=' "$env_file" | cut -d= -f2- | tr -d ' "\r')
     if echo "$srv_val" | grep -iq "aiwa"; then
         srv_val="198.244.200.119:443"
+    elif echo "$srv_val" | grep -iq "real21" || echo "$cname" | grep -iq "cent"; then
+        srv_val="96.0.47.188:443"
     fi
 
     docker exec "$cname" mkdir -p "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config" 2>/dev/null || true
@@ -126,6 +128,8 @@ for a in active:
     srv = lines.get('MT5_SERVER', 'Exness-MT5Trial9')
     if 'aiwa' in srv.lower() or 'aiwa' in cname.lower() or 'aiwa' in a.get('id', '').lower():
         srv = '198.244.200.119:443'
+    elif 'real21' in srv.lower() or 'cent' in a.get('id', '').lower():
+        srv = '96.0.47.188:443'
 
     subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config'], stderr=subprocess.DEVNULL)
     if os.path.exists('config/servers.dat'):
