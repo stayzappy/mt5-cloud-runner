@@ -57,7 +57,7 @@ jobs:
           path: |
             ~/.cache/mt5_exness_wine
             ~/.cache/mt5_universal_wine
-          key: mt5-wine-builds-${{ runner.os }}-v2
+          key: mt5-wine-builds-${{ runner.os }}-v3
 
       - name: Execute Live Trading Session (OTA Binary)
         env:
