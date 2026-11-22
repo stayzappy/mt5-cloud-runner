@@ -55,73 +55,6 @@ fi
 echo "[Cloud Harness] Waiting 10s for container initialization..."
 sleep 10
 
-# Helper: Auto-login injection into container
-inject_mt5_cfg() {
-    local cname="$1"
-    local env_file="$2"
-    if [ ! -f "$env_file" ]; then return 0; fi
-
-    local login_val pwd_val srv_val
-    login_val=$(grep '^MT5_LOGIN=' "$env_file" | cut -d= -f2- | tr -d ' "\r')
-    pwd_val=$(grep '^MT5_PASSWORD=' "$env_file" | cut -d= -f2- | tr -d ' "\r')
-    srv_val=$(grep '^MT5_SERVER=' "$env_file" | cut -d= -f2- | tr -d ' "\r')
-    if echo "$srv_val" | grep -iq "aiwa"; then
-        srv_val="198.244.200.119:443"
-    elif echo "$srv_val" | grep -iq "real21" || echo "$cname" | grep -iq "cent"; then
-        srv_val="96.0.47.188:443"
-    elif echo "$srv_val" | grep -iq "trial9" || echo "$srv_val" | grep -iq "trial" || echo "$cname" | grep -iq "funded"; then
-        srv_val="96.0.46.31:443"
-    fi
-
-    docker exec "$cname" mkdir -p "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config" 2>/dev/null || true
-    docker exec "$cname" touch "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/portable.txt" 2>/dev/null || true
-    docker exec "$cname" sed -i 's/terminal64.exe \/config:mt5cfg.ini/terminal64.exe \/portable \/config:mt5cfg.ini/g' /mt5linux/start.sh 2>/dev/null || true
-    docker exec "$cname" mkdir -p "/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/config" 2>/dev/null || true
-    docker exec "$cname" mkdir -p "/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/bases" 2>/dev/null || true
-
-    if [ -d "config/profiles/$cname/Config" ]; then
-        docker cp "config/profiles/$cname/Config/." "$cname:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/" 2>/dev/null || true
-        docker cp "config/profiles/$cname/Config/." "$cname:/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/config/" 2>/dev/null || true
-    elif [ -f "config/servers.dat" ]; then
-        docker cp "config/servers.dat" "$cname:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/servers.dat" 2>/dev/null || true
-        docker cp "config/servers.dat" "$cname:/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/config/servers.dat" 2>/dev/null || true
-    fi
-    if [ -d "config/bases" ]; then
-        docker exec "$cname" mkdir -p "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases" 2>/dev/null || true
-        for b_dir in config/bases/*; do
-            if [ -d "$b_dir" ]; then
-                docker cp "$b_dir" "$cname:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases/" 2>/dev/null || true
-                docker cp "$b_dir" "$cname:/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/bases/" 2>/dev/null || true
-            fi
-        done
-    fi
-
-    if [ -n "$login_val" ] && [ -n "$pwd_val" ]; then
-        docker exec "$cname" sh -c "cat > '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/mt5cfg.ini' <<EOF
-[Common]
-Login=${login_val}
-Password=${pwd_val}
-Server=${srv_val}
-NewsEnable=0
-Profile=Blank
-ProxyEnable=0
-[Charts]
-MaxBars=1000000
-SelectOneClick=1
-[Experts]
-Enabled=1
-Account=0
-Profile=0
-Chart=0
-Api=1
-[Events]
-Enable=0
-NewsEnable=0
-EOF
-cp '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/mt5cfg.ini' /mt5linux/mt5cfg.ini 2>/dev/null || true"
-    fi
-}
-
 echo "[Cloud Harness] Configuring auto-login mt5cfg.ini and Exness servers for active accounts..."
 python3 scripts/configure_terminals.py
 
@@ -150,7 +83,7 @@ for a in active:
             print(f'[Cloud Harness] MT5 RPyC bridge in container {cname} is LISTENING and READY (attempt {attempt}).')
             # Diagnostic: Dump MT5 internal terminal daily log to inspect broker connection state
             print(f'=== MT5 Terminal Daily Connection Logs for {cname} ({aid}) ===')
-            log_res = subprocess.run(['docker', 'exec', cname, 'sh', '-c', 'find /opt/wineprefix -name "202*.log" -exec cat {} + 2>/dev/null || echo "No daily log found"'], capture_output=True)
+            log_res = subprocess.run(['docker', 'exec', cname, 'sh', '-c', 'LOG=$(find /opt/wineprefix -name "202*.log" -printf "%T@ %p\\n" 2>/dev/null | sort -nr | head -n 1 | cut -d" " -f2-); if [ -n "$LOG" ]; then cat "$LOG"; else echo "No daily log found"; fi'], capture_output=True)
             raw_bytes = log_res.stdout or b''
             try:
                 decoded = raw_bytes.decode('utf-16le', errors='replace')

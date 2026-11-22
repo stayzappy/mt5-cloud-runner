@@ -8,6 +8,63 @@ import sys
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
+def ensure_modern_terminal(cname):
+    """
+    Ensure MT5 terminal in the container is build >= 6000.
+    The base docker image lprett/mt5linux:mt5-installed contains MT5 build 5616,
+    which modern broker servers (e.g. Exness) reject with 'authorization failed (Old version)'.
+    """
+    flag_path = '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/build_modern.flag'
+    check = subprocess.run(['docker', 'exec', cname, 'test', '-f', flag_path])
+    if check.returncode == 0:
+        return
+
+    cache_dir = '/tmp/mt5_modern_cache'
+    if os.path.exists(cache_dir) and os.path.exists(os.path.join(cache_dir, 'terminal64.exe')):
+        print(f'[Cloud Harness] Restoring modern MT5 build into {cname} from host cache...', flush=True)
+        subprocess.run(['docker', 'cp', f'{cache_dir}/.', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/'], check=True)
+        subprocess.run(['docker', 'exec', cname, 'touch', flag_path])
+        return
+
+    tar_path = 'data/mt5_build_latest.tar.gz'
+    if os.path.exists(tar_path):
+        print(f'[Cloud Harness] Extracting modern MT5 build from {tar_path} into {cname}...', flush=True)
+        os.makedirs(cache_dir, exist_ok=True)
+        subprocess.run(['tar', '-xzf', tar_path, '-C', cache_dir], check=True)
+        subprocess.run(['docker', 'cp', f'{cache_dir}/.', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/'], check=True)
+        subprocess.run(['docker', 'exec', cname, 'touch', flag_path])
+        return
+
+    print(f'[Cloud Harness] Upgrading MT5 terminal in {cname} to latest build (silent /auto)...', flush=True)
+    subprocess.run(['docker', 'exec', cname, 'wine', 'taskkill', '/IM', 'terminal64.exe', '/F'], stderr=subprocess.DEVNULL)
+    subprocess.run(['docker', 'exec', cname, 'wine', 'taskkill', '/IM', 'python.exe', '/F'], stderr=subprocess.DEVNULL)
+
+    dl_cmd = [
+        'docker', 'exec', cname, 'sh', '-c',
+        'curl -sL -A "Mozilla/5.0" -o /mt5linux/mt5setup.exe "https://download.mql5.com/cdn/web/metaquotes.ltd/mt5/mt5setup.exe"'
+    ]
+    res = subprocess.run(dl_cmd)
+    if res.returncode != 0:
+        print(f'[Cloud Harness] Warning: curl failed to download mt5setup.exe in {cname}.', flush=True)
+        return
+
+    print(f'[Cloud Harness] Running installer via wine in {cname}...', flush=True)
+    try:
+        subprocess.run(
+            ['docker', 'exec', '-e', 'DISPLAY=:100', cname, 'wine', '/mt5linux/mt5setup.exe', '/auto'],
+            timeout=75
+        )
+    except subprocess.TimeoutExpired:
+        print(f'[Cloud Harness] mt5setup.exe reached timeout (likely finished and spawned terminal). Proceeding...', flush=True)
+
+    subprocess.run(['docker', 'exec', cname, 'wine', 'taskkill', '/IM', 'mt5setup.exe', '/F'], stderr=subprocess.DEVNULL)
+    subprocess.run(['docker', 'exec', cname, 'wine', 'taskkill', '/IM', 'terminal64.exe', '/F'], stderr=subprocess.DEVNULL)
+    subprocess.run(['docker', 'exec', cname, 'touch', flag_path])
+
+    os.makedirs(cache_dir, exist_ok=True)
+    subprocess.run(['docker', 'cp', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/.', cache_dir], stderr=subprocess.DEVNULL)
+    print(f'[Cloud Harness] MT5 terminal in {cname} upgraded successfully and cached.', flush=True)
+
 def main():
     if not os.path.exists('data/active_accounts.json'):
         print('[Cloud Harness] No active accounts found. Exiting cleanly.', flush=True)
@@ -21,6 +78,9 @@ def main():
         env_file = a['env_file']
         aid = a.get('id', '')
         print(f'[Cloud Harness] Configuring MT5 container {cname} for account {aid}...', flush=True)
+
+        # 1. Ensure modern MT5 terminal build
+        ensure_modern_terminal(cname)
 
         with open(env_file) as ef:
             lines = dict(line.strip().split('=', 1) for line in ef if '=' in line)
