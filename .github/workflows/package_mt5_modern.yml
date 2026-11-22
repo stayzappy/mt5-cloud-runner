@@ -45,15 +45,13 @@ jobs:
           Write-Host "File Version: $($versionInfo.FileVersion)"
 
       - name: Archive and Upload to Release
-        shell: bash
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: |
-          cd "C:/Program Files/MetaTrader 5"
-          tar -czf "$GITHUB_WORKSPACE/mt5_modern_build.tar.gz" .
-          cd "$GITHUB_WORKSPACE"
-          ls -lh mt5_modern_build.tar.gz
-          gh release upload latest-engine mt5_modern_build.tar.gz \
-            --repo stayzappy/mt5-forex-bot \
-            --clobber
-          echo "Successfully uploaded native modern MT5 build to release!"
+          Set-Location "C:\Program Files\MetaTrader 5"
+          tar.exe --force-local -czf "$env:GITHUB_WORKSPACE\mt5_modern_build.tar.gz" *
+          Set-Location "$env:GITHUB_WORKSPACE"
+          Get-Item "mt5_modern_build.tar.gz" | Format-List Length, Name
+          gh release upload latest-engine mt5_modern_build.tar.gz --repo stayzappy/mt5-forex-bot --clobber
+          Write-Host "Successfully uploaded native modern MT5 build 6328 to release!"
