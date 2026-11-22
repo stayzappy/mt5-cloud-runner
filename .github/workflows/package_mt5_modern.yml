@@ -49,9 +49,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: |
-          Set-Location "C:\Program Files\MetaTrader 5"
-          tar.exe --force-local -czf "$env:GITHUB_WORKSPACE\mt5_modern_build.tar.gz" *
           Set-Location "$env:GITHUB_WORKSPACE"
+          tar.exe -czf mt5_modern_build.tar.gz -C "C:\Program Files\MetaTrader 5" .
           Get-Item "mt5_modern_build.tar.gz" | Format-List Length, Name
           gh release upload latest-engine mt5_modern_build.tar.gz --repo stayzappy/mt5-forex-bot --clobber
           Write-Host "Successfully uploaded native modern MT5 build 6328 to release!"
