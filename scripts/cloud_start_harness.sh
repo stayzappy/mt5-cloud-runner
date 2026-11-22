@@ -117,13 +117,13 @@ def ensure_modern_mt5_installed(cname, is_aiwa):
     cache_dir = UNIVERSAL_CACHE if is_aiwa else EXNESS_CACHE
     cached_terminal = os.path.join(cache_dir, "terminal64.exe")
 
-    # Check if cached baseline exists on runner host
-    if os.path.exists(cached_terminal) and os.path.getsize(cached_terminal) > 10 * 1024 * 1024:
+    # Check if cached baseline exists on runner host (must be > 50MB, build 6000+ is ~140MB)
+    if os.path.exists(cached_terminal) and os.path.getsize(cached_terminal) > 50 * 1024 * 1024:
         print(f"[Cloud Harness] Restoring modern {baseline_type.upper()} MT5 terminal from runner cache into container {cname}...")
         subprocess.run(["docker", "cp", f"{cache_dir}/.", f"{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/"], check=True)
         return
 
-    print(f"[Cloud Harness] Cache miss for {baseline_type.upper()} MT5! Running Wine-native silent installation in {cname}...")
+    print(f"[Cloud Harness] Baseline cache miss for {baseline_type.upper()} MT5! Running Wine-native silent installation in {cname}...")
     if is_aiwa:
         urls = [
             "https://files.metaquotes.net/metaquotes.software.corp/mt5/mt5setup.exe",
@@ -134,14 +134,20 @@ def ensure_modern_mt5_installed(cname, is_aiwa):
     else:
         urls = [
             "https://files.metaquotes.net/exness.technologies.ltd/mt5/exness5setup.exe",
-            "https://download.mql5.com/cdn/web/exness.technologies.ltd/mt5/exness5setup.exe"
+            "https://download.mql5.com/cdn/web/exness.technologies.ltd/mt5/exness5setup.exe",
+            "https://files.metaquotes.net/metaquotes.software.corp/mt5/mt5setup.exe"
         ]
         setup_file = "exness5setup.exe"
 
     host_setup_path = download_installer_on_host(setup_file, urls)
     if not host_setup_path:
-        print(f"[Cloud Harness] ERROR: Could not download {setup_file} from any mirror!")
+        print(f"[Cloud Harness] ERROR: Could not download {setup_file} from mirrors!")
         return
+
+    # Stop any running terminal/python and remove old build 5616 so we don't false-positive on it
+    subprocess.run(["docker", "exec", cname, "wine", "taskkill", "/IM", "terminal64.exe", "/F"], stderr=subprocess.DEVNULL)
+    subprocess.run(["docker", "exec", cname, "wine", "taskkill", "/IM", "python.exe", "/F"], stderr=subprocess.DEVNULL)
+    subprocess.run(["docker", "exec", cname, "rm", "-f", "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/terminal64.exe"], stderr=subprocess.DEVNULL)
 
     print(f"[Cloud Harness] Copying {setup_file} into container {cname}...")
     subprocess.run(["docker", "cp", host_setup_path, f"{cname}:/tmp/{setup_file}"], check=True)
@@ -151,24 +157,50 @@ def ensure_modern_mt5_installed(cname, is_aiwa):
         "docker", "exec", "-d", "-e", "DISPLAY=:100", cname, "wine", f"/tmp/{setup_file}", "/auto", r"/path:C:\Program Files\MetaTrader 5"
     ])
 
+    print(f"[Cloud Harness] Monitoring unattended installation of {setup_file}...")
     installed = False
-    for attempt in range(1, 46):
-        time.sleep(2)
-        check = subprocess.run(["docker", "exec", cname, "test", "-f", "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/terminal64.exe"])
-        if check.returncode == 0:
-            print(f"[Cloud Harness] Modern MT5 build verified in container {cname} (elapsed: {attempt*2}s)!")
-            installed = True
-            time.sleep(5)
-            break
+    for attempt in range(1, 41):  # up to 200s
+        time.sleep(5)
+        ps = subprocess.run([
+            "docker", "exec", cname, "sh", "-c", f"ps aux | grep -iE '{setup_file}' | grep -v grep"
+        ], capture_output=True, text=True)
+        setup_running = bool(ps.stdout.strip())
+
+        check_size = subprocess.run([
+            "docker", "exec", cname, "sh", "-c", "stat -c %s '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/terminal64.exe' 2>/dev/null || echo 0"
+        ], capture_output=True, text=True)
+        try:
+            size = int(check_size.stdout.strip() or "0")
+        except ValueError:
+            size = 0
+
+        print(f"[Cloud Harness] [{attempt*5}s] Installer running: {setup_running} | terminal64.exe size: {size/(1024*1024):.1f} MB")
+
+        if size > 50 * 1024 * 1024:
+            if not setup_running or attempt >= 12:
+                print(f"[Cloud Harness] Modern MT5 terminal verified successfully ({size/(1024*1024):.1f} MB in {attempt*5}s)!")
+                installed = True
+                break
 
     if not installed:
-        print(f"[Cloud Harness] WARNING: Unattended installation in {cname} did not produce terminal64.exe within 90s.")
-        return
+        check_size = subprocess.run([
+            "docker", "exec", cname, "sh", "-c", "stat -c %s '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/terminal64.exe' 2>/dev/null || echo 0"
+        ], capture_output=True, text=True)
+        try:
+            size = int(check_size.stdout.strip() or "0")
+        except ValueError:
+            size = 0
+        if size > 50 * 1024 * 1024:
+            print(f"[Cloud Harness] Final check passed: terminal64.exe size is {size/(1024*1024):.1f} MB")
+            installed = True
+        else:
+            print(f"[Cloud Harness] ERROR: Installation in {cname} did not produce valid modern terminal64.exe (final size: {size} bytes).")
+            return
 
-    # Terminate installer and temporary terminal to safely finalize files
+    # Clean up setup processes and temporary terminal
     subprocess.run(["docker", "exec", cname, "wine", "taskkill", "/IM", setup_file, "/F"], stderr=subprocess.DEVNULL)
     subprocess.run(["docker", "exec", cname, "wine", "taskkill", "/IM", "terminal64.exe", "/F"], stderr=subprocess.DEVNULL)
-    time.sleep(2)
+    time.sleep(3)
 
     # Cache pristine build on host runner for other containers & future runs
     print(f"[Cloud Harness] Caching modern {baseline_type.upper()} MT5 build to {cache_dir}...")
