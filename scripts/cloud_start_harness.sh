@@ -35,6 +35,16 @@ chmod +x mt5_trader_engine
 
 echo "[Cloud Harness] Engine binary verified: $(./mt5_trader_engine --help | head -n 2 | tail -n 1)"
 
+# Check and pull modern MT5 package if available in release
+if gh release view latest-engine --repo stayzappy/mt5-forex-bot --json assets -q '.assets[].name' 2>/dev/null | grep -q "mt5_modern_build.tar.gz"; then
+    echo "[Cloud Harness] Pulling modern MT5 pre-packaged build from release..."
+    gh release download latest-engine \
+        --repo stayzappy/mt5-forex-bot \
+        --pattern "mt5_modern_build.tar.gz" \
+        --dir data \
+        --clobber || true
+fi
+
 # 2. Pull live account configurations and secrets from Cloudflare Worker
 echo "[Cloud Harness] Pulling account profiles and remote configuration from Worker..."
 CONTROL_WORKER_URL="${CONTROL_WORKER_URL:-https://mt5-control-studio.zapstream.workers.dev}"

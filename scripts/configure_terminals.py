@@ -26,7 +26,7 @@ def ensure_modern_terminal(cname):
         subprocess.run(['docker', 'exec', cname, 'touch', flag_path])
         return
 
-    tar_path = 'data/mt5_build_latest.tar.gz'
+    tar_path = 'data/mt5_modern_build.tar.gz' if os.path.exists('data/mt5_modern_build.tar.gz') else 'data/mt5_build_latest.tar.gz'
     if os.path.exists(tar_path):
         print(f'[Cloud Harness] Extracting modern MT5 build from {tar_path} into {cname}...', flush=True)
         os.makedirs(cache_dir, exist_ok=True)
