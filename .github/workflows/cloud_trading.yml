@@ -27,7 +27,7 @@ on:
       target_account:
         description: 'Single target account (e.g. personal_cent) or empty for all'
         required: false
-        default: 'personal_cent'
+        default: ''
         type: string
 
 concurrency:
