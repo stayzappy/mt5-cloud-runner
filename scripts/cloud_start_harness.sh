@@ -56,7 +56,7 @@ sleep 10
 
 echo "[Cloud Harness] Configuring modern Wine MT5 baseline, auto-login, and broker assets..."
 python3 << 'PYEOF'
-import json, subprocess, os, sys, time
+import json, subprocess, os, sys, time, urllib.request
 
 EXNESS_CACHE = os.path.expanduser("~/.cache/mt5_exness_wine")
 UNIVERSAL_CACHE = os.path.expanduser("~/.cache/mt5_universal_wine")
@@ -69,6 +69,48 @@ if not os.path.exists("data/active_accounts.json"):
 
 with open("data/active_accounts.json") as f:
     active = json.load(f)
+
+def download_installer_on_host(setup_filename, urls):
+    host_path = os.path.join("/tmp", setup_filename)
+    if os.path.exists(host_path) and os.path.getsize(host_path) > 1024 * 1024:
+        return host_path
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    for url in urls:
+        print(f"[Cloud Harness] Attempting to download {setup_filename} from {url}...")
+        try:
+            cmd = [
+                "curl", "-sSL",
+                "-A", headers["User-Agent"],
+                "--connect-timeout", "15",
+                "--max-time", "90",
+                "-o", host_path,
+                url
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode == 0 and os.path.exists(host_path) and os.path.getsize(host_path) > 1024 * 1024:
+                print(f"[Cloud Harness] Successfully downloaded {setup_filename} ({os.path.getsize(host_path)} bytes).")
+                return host_path
+            else:
+                print(f"[Cloud Harness] curl failed or file too small for {url}: {res.stderr}")
+        except Exception as e:
+            print(f"[Cloud Harness] Error downloading from {url}: {e}")
+
+    # Fallback with python urllib
+    for url in urls:
+        try:
+            print(f"[Cloud Harness] Fallback: downloading {setup_filename} via urllib from {url}...")
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=30) as resp, open(host_path, "wb") as out:
+                out.write(resp.read())
+            if os.path.exists(host_path) and os.path.getsize(host_path) > 1024 * 1024:
+                print(f"[Cloud Harness] Successfully downloaded {setup_filename} via urllib ({os.path.getsize(host_path)} bytes).")
+                return host_path
+        except Exception as e:
+            print(f"[Cloud Harness] urllib error for {url}: {e}")
+    return None
 
 def ensure_modern_mt5_installed(cname, is_aiwa):
     baseline_type = "universal" if is_aiwa else "exness"
@@ -83,20 +125,30 @@ def ensure_modern_mt5_installed(cname, is_aiwa):
 
     print(f"[Cloud Harness] Cache miss for {baseline_type.upper()} MT5! Running Wine-native silent installation in {cname}...")
     if is_aiwa:
-        setup_url = "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
+        urls = [
+            "https://files.metaquotes.net/metaquotes.software.corp/mt5/mt5setup.exe",
+            "https://download.mql5.com/cdn/web/metaquotes.ltd/mt5/mt5setup.exe",
+            "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
+        ]
         setup_file = "mt5setup.exe"
     else:
-        setup_url = "https://download.mql5.com/cdn/web/exness.technologies.ltd/mt5/exness5setup.exe"
+        urls = [
+            "https://files.metaquotes.net/exness.technologies.ltd/mt5/exness5setup.exe",
+            "https://download.mql5.com/cdn/web/exness.technologies.ltd/mt5/exness5setup.exe"
+        ]
         setup_file = "exness5setup.exe"
 
-    print(f"[Cloud Harness] Downloading {setup_file} inside container {cname}...")
-    dl = subprocess.run(["docker", "exec", cname, "curl", "-sSL", "-o", f"/tmp/{setup_file}", setup_url])
-    if dl.returncode != 0:
-        subprocess.run(["docker", "exec", cname, "wget", "-q", "-O", f"/tmp/{setup_file}", setup_url], check=True)
+    host_setup_path = download_installer_on_host(setup_file, urls)
+    if not host_setup_path:
+        print(f"[Cloud Harness] ERROR: Could not download {setup_file} from any mirror!")
+        return
 
-    print(f"[Cloud Harness] Executing Wine unattended setup in {cname} (/auto /path:'C:\\Program Files\\MetaTrader 5')...")
+    print(f"[Cloud Harness] Copying {setup_file} into container {cname}...")
+    subprocess.run(["docker", "cp", host_setup_path, f"{cname}:/tmp/{setup_file}"], check=True)
+
+    print(f"[Cloud Harness] Executing Wine unattended setup in {cname} under DISPLAY=:100 (/auto /path:'C:\\Program Files\\MetaTrader 5')...")
     subprocess.Popen([
-        "docker", "exec", cname, "wine", f"/tmp/{setup_file}", "/auto", r"/path:C:\Program Files\MetaTrader 5"
+        "docker", "exec", "-d", "-e", "DISPLAY=:100", cname, "wine", f"/tmp/{setup_file}", "/auto", r"/path:C:\Program Files\MetaTrader 5"
     ])
 
     installed = False
@@ -113,8 +165,9 @@ def ensure_modern_mt5_installed(cname, is_aiwa):
         print(f"[Cloud Harness] WARNING: Unattended installation in {cname} did not produce terminal64.exe within 90s.")
         return
 
-    # Terminate installer to safely finalize files
-    subprocess.run(["docker", "exec", cname, "wineserver", "-k"], stderr=subprocess.DEVNULL)
+    # Terminate installer and temporary terminal to safely finalize files
+    subprocess.run(["docker", "exec", cname, "wine", "taskkill", "/IM", setup_file, "/F"], stderr=subprocess.DEVNULL)
+    subprocess.run(["docker", "exec", cname, "wine", "taskkill", "/IM", "terminal64.exe", "/F"], stderr=subprocess.DEVNULL)
     time.sleep(2)
 
     # Cache pristine build on host runner for other containers & future runs
