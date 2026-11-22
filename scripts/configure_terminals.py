@@ -22,6 +22,7 @@ def ensure_modern_terminal(cname):
     cache_dir = '/tmp/mt5_modern_cache'
     if os.path.exists(cache_dir) and os.path.exists(os.path.join(cache_dir, 'terminal64.exe')):
         print(f'[Cloud Harness] Restoring modern MT5 build into {cname} from host cache...', flush=True)
+        subprocess.run(['docker', 'exec', cname, 'wine', 'taskkill', '/IM', 'terminal64.exe', '/F'], stderr=subprocess.DEVNULL)
         subprocess.run(['docker', 'cp', f'{cache_dir}/.', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/'], check=True)
         subprocess.run(['docker', 'exec', cname, 'touch', flag_path])
         return
@@ -29,8 +30,10 @@ def ensure_modern_terminal(cname):
     tar_path = 'data/mt5_modern_build.tar.gz' if os.path.exists('data/mt5_modern_build.tar.gz') else 'data/mt5_build_latest.tar.gz'
     if os.path.exists(tar_path):
         print(f'[Cloud Harness] Extracting modern MT5 build from {tar_path} into {cname}...', flush=True)
+        subprocess.run(['docker', 'exec', cname, 'wine', 'taskkill', '/IM', 'terminal64.exe', '/F'], stderr=subprocess.DEVNULL)
         os.makedirs(cache_dir, exist_ok=True)
-        subprocess.run(['tar', '-xzf', tar_path, '-C', cache_dir], check=True)
+        if not os.path.exists(os.path.join(cache_dir, 'terminal64.exe')):
+            subprocess.run(['tar', '-xzf', tar_path, '-C', cache_dir], check=True)
         subprocess.run(['docker', 'cp', f'{cache_dir}/.', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/'], check=True)
         subprocess.run(['docker', 'exec', cname, 'touch', flag_path])
         return
