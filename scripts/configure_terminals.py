@@ -24,6 +24,7 @@ def ensure_modern_terminal(cname):
         print(f'[Cloud Harness] Restoring modern MT5 build into {cname} from host cache...', flush=True)
         subprocess.run(['docker', 'exec', cname, 'wine', 'taskkill', '/IM', 'terminal64.exe', '/F'], stderr=subprocess.DEVNULL)
         subprocess.run(['docker', 'cp', f'{cache_dir}/.', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/'], check=True)
+        subprocess.run(['docker', 'exec', cname, 'chmod', '-R', '777', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5'], stderr=subprocess.DEVNULL)
         subprocess.run(['docker', 'exec', cname, 'touch', flag_path])
         return
 
@@ -35,7 +36,10 @@ def ensure_modern_terminal(cname):
         if not os.path.exists(os.path.join(cache_dir, 'terminal64.exe')):
             subprocess.run(['tar', '-xzf', tar_path, '-C', cache_dir], check=True)
         subprocess.run(['docker', 'cp', f'{cache_dir}/.', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/'], check=True)
+        subprocess.run(['docker', 'exec', cname, 'chmod', '-R', '777', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5'], stderr=subprocess.DEVNULL)
         subprocess.run(['docker', 'exec', cname, 'touch', flag_path])
+        print(f'[Cloud Harness] Extracted modern MT5 build files into {cname}:', flush=True)
+        subprocess.run(['docker', 'exec', cname, 'ls', '-lh', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5'])
         return
 
     print(f'[Cloud Harness] Upgrading MT5 terminal in {cname} to latest build (silent /auto)...', flush=True)

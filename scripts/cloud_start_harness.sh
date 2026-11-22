@@ -91,6 +91,16 @@ for a in active:
         if res.returncode == 0:
             ok = True
             print(f'[Cloud Harness] MT5 RPyC bridge in container {cname} is LISTENING and READY (attempt {attempt}).')
+            # Diagnostic: Dump running processes and container logs
+            print(f'=== Running processes in {cname} ===')
+            ps_proc = subprocess.run(['docker', 'exec', cname, 'ps', 'aux'], capture_output=True, text=True)
+            print(ps_proc.stdout)
+            print(f'=== Container recent logs for {cname} ===')
+            subprocess.run(['docker', 'logs', '--tail', '50', cname])
+            if 'terminal64.exe' not in ps_proc.stdout:
+                print(f'[Cloud Harness] WARNING: terminal64.exe not running in {cname}! Testing direct wine launch...', flush=True)
+                test_launch = subprocess.run(['docker', 'exec', '-e', 'DISPLAY=:100', cname, 'sh', '-c', 'cd "/opt/wineprefix/drive_c/Program Files/MetaTrader 5" && wine terminal64.exe /config:mt5cfg.ini & sleep 3; ps aux'], capture_output=True, text=True)
+                print(f'Test launch output:\n{test_launch.stdout}\n{test_launch.stderr}', flush=True)
             # Diagnostic: Dump MT5 internal terminal daily log to inspect broker connection state
             print(f'=== MT5 Terminal Daily Connection Logs for {cname} ({aid}) ===')
             log_res = subprocess.run(['docker', 'exec', cname, 'sh', '-c', 'LOG=$(find /opt/wineprefix -name "202*.log" -printf "%T@ %p\\n" 2>/dev/null | sort -nr | head -n 1 | cut -d" " -f2-); if [ -n "$LOG" ]; then cat "$LOG"; else echo "No daily log found"; fi'], capture_output=True)
