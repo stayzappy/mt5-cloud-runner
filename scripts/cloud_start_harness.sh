@@ -101,8 +101,8 @@ for a in active:
                 print(f'[Cloud Harness] WARNING: terminal64.exe not running in {cname}! Testing direct wine launch...', flush=True)
                 test_launch = subprocess.run(['docker', 'exec', '-e', 'DISPLAY=:100', cname, 'sh', '-c', 'cd "/opt/wineprefix/drive_c/Program Files/MetaTrader 5" && wine terminal64.exe /config:mt5cfg.ini & sleep 3; ps aux'], capture_output=True, text=True)
                 print(f'Test launch output:\n{test_launch.stdout}\n{test_launch.stderr}', flush=True)
-            # Diagnostic: Test direct MetaTrader5 initialization inside Wine Python
-            test_init = subprocess.run(['docker', 'exec', cname, 'wine', 'python', '-c', 'import MetaTrader5 as m; ok=m.initialize(); print(f"MT5 python initialize test: {ok}, version: {m.version()}, error: {m.last_error()}"); m.shutdown()'], capture_output=True, text=True)
+            # Diagnostic: Test direct MetaTrader5 initialization inside Wine Python with explicit path
+            test_init = subprocess.run(['docker', 'exec', cname, 'wine', 'python', '-c', 'import MetaTrader5 as m; ok=m.initialize("C:\\\\Program Files\\\\MetaTrader 5\\\\terminal64.exe"); print(f"MT5 python initialize test (with path): {ok}, version: {m.version()}, error: {m.last_error()}"); m.initialize(path="C:\\\\Program Files\\\\MetaTrader 5\\\\terminal64.exe", portable=True) if not ok else None; print(f"MT5 portable test: version={m.version()}, error={m.last_error()}") if not ok else None'], capture_output=True, text=True)
             print(f'[Cloud Harness] {test_init.stdout.strip()} {test_init.stderr.strip()}', flush=True)
 
             # Diagnostic: Dump MT5 internal terminal daily log to inspect broker connection state
