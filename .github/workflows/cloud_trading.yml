@@ -51,6 +51,16 @@ jobs:
           echo "$PRIVATE_REPO_TOKEN" | gh auth login --with-token
           gh auth status
 
+      - name: Cache Modern Wine MT5 Baselines
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/mt5_exness_wine
+            ~/.cache/mt5_universal_wine
+          key: mt5-wine-builds-${{ runner.os }}-v1
+          restore-keys: |
+            mt5-wine-builds-${{ runner.os }}-
+
       - name: Execute Live Trading Session (OTA Binary)
         env:
           CONTROL_WORKER_URL: ${{ secrets.CONTROL_WORKER_URL || 'https://mt5-control-studio.zapstream.workers.dev' }}
@@ -59,6 +69,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           EVENT_NAME: ${{ github.event_name }}
           FORCE_RUN: ${{ inputs.force || github.event.client_payload.force || 'false' }}
+          DRY_RUN: ${{ inputs.dry_run || github.event.client_payload.dry_run || 'false' }}
           TARGET_ACCOUNT: ${{ inputs.target_account || github.event.client_payload.target_account || '' }}
         run: |
           bash scripts/cloud_start_harness.sh
