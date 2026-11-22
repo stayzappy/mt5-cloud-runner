@@ -83,6 +83,7 @@ for a in active:
         srv = 'Exness-MT5Trial9'
 
     subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config'], stderr=subprocess.DEVNULL)
+    subprocess.run(['docker', 'exec', cname, 'touch', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/portable.txt'], stderr=subprocess.DEVNULL)
     if os.path.exists('config/servers.dat'):
         subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/servers.dat'], stderr=subprocess.DEVNULL)
     if os.path.exists('config/bases'):
@@ -107,7 +108,7 @@ Enabled=1
 Account=0
 Profile=0
 Chart=0
-Api=0
+Api=1
 [Events]
 Enable=0
 NewsEnable=0
