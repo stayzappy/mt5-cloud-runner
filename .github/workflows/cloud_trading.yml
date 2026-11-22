@@ -51,13 +51,11 @@ jobs:
           echo "$PRIVATE_REPO_TOKEN" | gh auth login --with-token
           gh auth status
 
-      - name: Cache Modern Wine MT5 Baselines
+      - name: Cache Modern MT5 Package
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cache/mt5_exness_wine
-            ~/.cache/mt5_universal_wine
-          key: mt5-wine-builds-${{ runner.os }}-v3
+          path: data/mt5_modern_build.tar.gz
+          key: mt5-modern-build-pkg-v1
 
       - name: Execute Live Trading Session (OTA Binary)
         env:
