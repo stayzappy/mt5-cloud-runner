@@ -72,6 +72,23 @@ def ensure_modern_terminal(cname):
     subprocess.run(['docker', 'cp', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/.', cache_dir], stderr=subprocess.DEVNULL)
     print(f'[Cloud Harness] MT5 terminal in {cname} upgraded successfully and cached.', flush=True)
 
+def ensure_modern_metatrader_python(cname):
+    """Ensure MetaTrader5 python package in Wine matches terminal build (>= 6000)."""
+    whl_name = 'metatrader5-5.0.6231-cp312-cp312-win_amd64.whl'
+    whl_path = os.path.join('data', whl_name)
+    if not os.path.exists(whl_path):
+        whl_url = 'https://files.pythonhosted.org/packages/90/ed/525a69afbc050f5b19342a6ddada4f086e2aa9ef63b987bef5d723f29586/metatrader5-5.0.6231-cp312-cp312-win_amd64.whl'
+        print(f'[Cloud Harness] Downloading {whl_name} for Wine Python...', flush=True)
+        os.makedirs('data', exist_ok=True)
+        subprocess.run(['curl', '-sL', whl_url, '-o', whl_path], check=True)
+
+    res = subprocess.run(['docker', 'exec', cname, 'wine', 'python', '-m', 'pip', 'show', 'MetaTrader5'], capture_output=True, text=True)
+    if '5.0.6231' not in res.stdout:
+        print(f'[Cloud Harness] Upgrading MetaTrader5 python package in {cname} to 5.0.6231...', flush=True)
+        subprocess.run(['docker', 'cp', whl_path, f'{cname}:/tmp/{whl_name}'], check=True)
+        subprocess.run(['docker', 'exec', cname, 'wine', 'python', '-m', 'pip', 'install', '--no-deps', '--upgrade', f'Z:\\tmp\\{whl_name}'], check=True)
+        print(f'[Cloud Harness] MetaTrader5 package upgraded successfully in {cname}.', flush=True)
+
 def main():
     if not os.path.exists('data/active_accounts.json'):
         print('[Cloud Harness] No active accounts found. Exiting cleanly.', flush=True)
@@ -86,8 +103,9 @@ def main():
         aid = a.get('id', '')
         print(f'[Cloud Harness] Configuring MT5 container {cname} for account {aid}...', flush=True)
 
-        # 1. Ensure modern MT5 terminal build
+        # 1. Ensure modern MT5 terminal build & matching Python MetaTrader5 package
         ensure_modern_terminal(cname)
+        ensure_modern_metatrader_python(cname)
 
         with open(env_file) as ef:
             lines = dict(line.strip().split('=', 1) for line in ef if '=' in line)
@@ -108,13 +126,36 @@ def main():
         # Ensure directories exist in both Program Files and AppData Roaming
         for d_path in [
             '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config',
+            '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/config',
             '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases',
+            '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/bases',
             '/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/Config',
             '/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/config',
             '/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/Bases',
             '/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/bases',
         ]:
             subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', d_path], stderr=subprocess.DEVNULL)
+
+        # Inject common.ini with [Experts] Api=1 to ensure MT5 enables Python IPC Named Pipe Server
+        common_ini = '''[Common]
+NewsEnable=0
+ProxyEnable=0
+
+[Experts]
+Enabled=1
+Account=0
+Profile=0
+Chart=0
+Api=1
+'''
+        for c_ini_path in [
+            '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/common.ini',
+            '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/config/common.ini',
+            '/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/Config/common.ini',
+            '/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/config/common.ini',
+        ]:
+            p_ini = subprocess.Popen(['docker', 'exec', '-i', cname, 'sh', '-c', f'cat > "{c_ini_path}"'], stdin=subprocess.PIPE)
+            p_ini.communicate(input=common_ini.encode())
 
         # Ensure standard terminal execution (clean non-portable mode matching Wine Python MetaTrader5)
         subprocess.run(['docker', 'exec', cname, 'rm', '-f', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/portable.txt'], stderr=subprocess.DEVNULL)
