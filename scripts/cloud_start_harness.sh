@@ -35,20 +35,6 @@ chmod +x mt5_trader_engine
 
 echo "[Cloud Harness] Engine binary verified: $(./mt5_trader_engine --help | head -n 2 | tail -n 1)"
 
-# Check and pull modern official MT5 terminal build (build 6328+) if available in release
-if gh release view latest-engine --repo stayzappy/mt5-forex-bot --json assets -q '.assets[].name' 2>/dev/null | grep -q "mt5_modern_build.tar.gz"; then
-    echo "[Cloud Harness] Pulling modern MT5 terminal package (build 6328+) from release..."
-    gh release download latest-engine \
-        --repo stayzappy/mt5-forex-bot \
-        --pattern "mt5_modern_build.tar.gz" \
-        --clobber || true
-    if [ -f "mt5_modern_build.tar.gz" ]; then
-        mkdir -p /tmp/mt5_modern
-        tar -xzf mt5_modern_build.tar.gz -C /tmp/mt5_modern
-        echo "[Cloud Harness] Modern MT5 build unpacked successfully."
-    fi
-fi
-
 # 2. Pull live account configurations and secrets from Cloudflare Worker
 echo "[Cloud Harness] Pulling account profiles and remote configuration from Worker..."
 CONTROL_WORKER_URL="${CONTROL_WORKER_URL:-https://mt5-control-studio.zapstream.workers.dev}"
@@ -90,20 +76,14 @@ for a in active:
     pwd = lines.get('MT5_PASSWORD', '')
     srv = lines.get('MT5_SERVER', 'Exness-MT5Trial9')
     if 'aiwa' in srv.lower() or 'aiwa' in cname.lower() or 'aiwa' in a.get('id', '').lower():
-        srv = 'AiwaCapital-Server'
+        srv = '198.244.200.119:443'
     elif 'real21' in srv.lower() or 'cent' in a.get('id', '').lower():
-        srv = 'Exness-MT5Real21'
+        srv = '96.0.47.188:443'
     elif 'trial9' in srv.lower() or 'trial' in srv.lower() or 'funded' in a.get('id', '').lower():
-        srv = 'Exness-MT5Trial9'
+        srv = '96.0.46.31:443'
 
     subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config'], stderr=subprocess.DEVNULL)
     subprocess.run(['docker', 'exec', cname, 'touch', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/portable.txt'], stderr=subprocess.DEVNULL)
-    subprocess.run(['docker', 'exec', cname, 'sed', '-i', 's/terminal64.exe \\/config:mt5cfg.ini/terminal64.exe \\/portable \\/config:mt5cfg.ini/g', '/mt5linux/start.sh'], stderr=subprocess.DEVNULL)
-
-    if os.path.exists('/tmp/mt5_modern/terminal64.exe'):
-        print(f'[Cloud Harness] Injecting modern MT5 build (build 6328+) into container {cname}...')
-        subprocess.run(['docker', 'cp', '/tmp/mt5_modern/.', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/'], check=True)
-        subprocess.run(['docker', 'exec', cname, 'touch', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/portable.txt'], stderr=subprocess.DEVNULL)
 
     if os.path.exists('config/servers.dat'):
         subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/servers.dat'], stderr=subprocess.DEVNULL)
