@@ -76,11 +76,11 @@ for a in active:
     pwd = lines.get('MT5_PASSWORD', '')
     srv = lines.get('MT5_SERVER', 'Exness-MT5Trial9')
     if 'aiwa' in srv.lower() or 'aiwa' in cname.lower() or 'aiwa' in a.get('id', '').lower():
-        srv = '198.244.200.119:443'
+        srv = 'AiwaCapital-Server'
     elif 'real21' in srv.lower() or 'cent' in a.get('id', '').lower():
-        srv = '96.0.47.188:443'
+        srv = 'Exness-MT5Real21'
     elif 'trial9' in srv.lower() or 'trial' in srv.lower() or 'funded' in a.get('id', '').lower():
-        srv = '96.0.46.31:443'
+        srv = 'Exness-MT5Trial9'
 
     subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config'], stderr=subprocess.DEVNULL)
     if os.path.exists('config/servers.dat'):
