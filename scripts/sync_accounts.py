@@ -70,7 +70,7 @@ try:
             elif "real21" in srv.lower() or "cent" in aid.lower():
                 srv = "Exness-MT5Real21"
             elif "trial9" in srv.lower() or "trial" in srv.lower() or "funded" in aid.lower():
-                srv = "96.0.46.31:443"
+                srv = "Exness-MT5Trial9"
             f.write(f'MT5_SERVER={srv}\n')
             f.write(f'RPYC_HOST=localhost\n')
             f.write(f'RPYC_PORT={rpyc_port}\n')

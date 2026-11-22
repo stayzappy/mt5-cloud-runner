@@ -34,7 +34,7 @@ def main():
         elif 'real21' in raw_srv.lower() or 'cent' in aid.lower():
             srv = 'Exness-MT5Real21'
         elif 'trial9' in raw_srv.lower() or 'trial' in raw_srv.lower() or 'funded' in aid.lower():
-            srv = '96.0.46.31:443'
+            srv = 'Exness-MT5Trial9'
         else:
             srv = raw_srv
 
