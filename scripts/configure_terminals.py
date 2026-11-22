@@ -49,16 +49,12 @@ def main():
         ]:
             subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', d_path], stderr=subprocess.DEVNULL)
 
-        # Enable portable mode
-        subprocess.run(['docker', 'exec', cname, 'touch', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/portable.txt'], stderr=subprocess.DEVNULL)
-        subprocess.run(['docker', 'exec', cname, 'sed', '-i', 's/terminal64.exe \\/config:mt5cfg.ini/terminal64.exe \\/portable \\/config:mt5cfg.ini/g', '/mt5linux/start.sh'], stderr=subprocess.DEVNULL)
+        # Ensure standard terminal execution (clean non-portable mode matching Wine Python MetaTrader5)
+        subprocess.run(['docker', 'exec', cname, 'rm', '-f', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/portable.txt'], stderr=subprocess.DEVNULL)
+        subprocess.run(['docker', 'exec', cname, 'sed', '-i', 's/terminal64.exe \\/portable \\/config:mt5cfg.ini/terminal64.exe \\/config:mt5cfg.ini/g', '/mt5linux/start.sh'], stderr=subprocess.DEVNULL)
 
-        profile_cfg = os.path.join('config', 'profiles', cname, 'Config')
-        if os.path.isdir(profile_cfg):
-            subprocess.run(['docker', 'cp', f'{profile_cfg}/.', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/'], stderr=subprocess.DEVNULL)
-            subprocess.run(['docker', 'cp', f'{profile_cfg}/.', f'{cname}:/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/Config/'], stderr=subprocess.DEVNULL)
-            subprocess.run(['docker', 'cp', f'{profile_cfg}/.', f'{cname}:/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/config/'], stderr=subprocess.DEVNULL)
-        elif os.path.exists('config/servers.dat'):
+        # Copy master servers.dat into both Program Files and AppData Roaming Config
+        if os.path.exists('config/servers.dat'):
             subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/servers.dat'], stderr=subprocess.DEVNULL)
             subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/Config/servers.dat'], stderr=subprocess.DEVNULL)
             subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/config/servers.dat'], stderr=subprocess.DEVNULL)
