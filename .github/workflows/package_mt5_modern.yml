@@ -1,0 +1,83 @@
+name: Package Modern MT5 Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-mt5-tarball:
+    name: Build & Release Modern MT5 Package
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout Harness
+        uses: actions/checkout@v4
+
+      - name: Auth GitHub CLI
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          echo "$PRIVATE_REPO_TOKEN" | gh auth login --with-token
+          gh auth status
+
+      - name: Start Base MT5 Container
+        run: |
+          docker compose up -d mt5
+          echo "Waiting 15s for base container to initialize..."
+          sleep 15
+
+      - name: Run Silent MT5 Update (up to 8 minutes)
+        run: |
+          echo "Stopping default terminal..."
+          docker exec mt5_headless wine taskkill /IM terminal64.exe /F 2>/dev/null || true
+          docker exec mt5_headless wine taskkill /IM python.exe /F 2>/dev/null || true
+          
+          echo "Downloading latest official MT5 setup..."
+          docker exec mt5_headless curl -sL -A "Mozilla/5.0" -o /mt5linux/mt5setup.exe "https://download.mql5.com/cdn/web/metaquotes.ltd/mt5/mt5setup.exe"
+          
+          echo "Launching wine /mt5linux/mt5setup.exe /auto under Xvfb (:100)..."
+          docker exec -d -e DISPLAY=:100 mt5_headless wine /mt5linux/mt5setup.exe /auto
+          
+          echo "Monitoring installer..."
+          for i in {1..48}; do
+            sleep 10
+            RUNNING=$(docker exec mt5_headless ps aux | grep -iE "mt5setup" | grep -v grep || true)
+            echo "[$((i*10))s] Installer status: ${RUNNING:-Not running / finished}"
+            if [ -z "$RUNNING" ] && [ "$i" -gt 3 ]; then
+              echo "Installer process has exited!"
+              break
+            fi
+          done
+          
+          echo "Cleaning up installer processes..."
+          docker exec mt5_headless wine taskkill /IM mt5setup.exe /F 2>/dev/null || true
+          docker exec mt5_headless wine taskkill /IM terminal64.exe /F 2>/dev/null || true
+          sleep 3
+
+      - name: Verify Updated Terminal Build
+        run: |
+          echo "Starting terminal briefly to write daily log..."
+          docker exec -d -e DISPLAY=:100 mt5_headless wine "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/terminal64.exe"
+          sleep 15
+          docker exec mt5_headless wine taskkill /IM terminal64.exe /F 2>/dev/null || true
+          
+          echo "=== Daily Connection Log ==="
+          docker exec mt5_headless sh -c 'LOG=$(find /opt/wineprefix -name "202*.log" -printf "%T@ %p\n" 2>/dev/null | sort -nr | head -n 1 | cut -d" " -f2-); if [ -n "$LOG" ]; then cat "$LOG"; else echo "No daily log found"; fi'
+
+      - name: Package and Upload to Release
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          mkdir -p /tmp/mt5_build
+          docker cp "mt5_headless:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/." /tmp/mt5_build/
+          
+          echo "Contents of extracted MetaTrader 5:"
+          ls -la /tmp/mt5_build/
+          
+          tar -czf mt5_modern_build.tar.gz -C /tmp/mt5_build .
+          ls -lh mt5_modern_build.tar.gz
+          
+          gh release upload latest-engine mt5_modern_build.tar.gz \
+            --repo stayzappy/mt5-forex-bot \
+            --clobber
+          echo "Successfully uploaded mt5_modern_build.tar.gz to stayzappy/mt5-forex-bot release latest-engine!"
