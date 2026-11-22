@@ -35,15 +35,8 @@ chmod +x mt5_trader_engine
 
 echo "[Cloud Harness] Engine binary verified: $(./mt5_trader_engine --help | head -n 2 | tail -n 1)"
 
-# 1b. Pull modern MT5 build (build 6328) from private release
-if [ ! -f "data/mt5_modern_build.tar.gz" ]; then
-    echo "[Cloud Harness] Pulling modern MT5 pre-packaged build (build 6328) from release..."
-    gh release download latest-engine \
-        --repo stayzappy/mt5-forex-bot \
-        --pattern "mt5_modern_build.tar.gz" \
-        --dir data \
-        --clobber || true
-fi
+# 1b. Ensure data and logs directories
+mkdir -p logs data
 
 # 2. Pull live account configurations and secrets from Cloudflare Worker
 echo "[Cloud Harness] Pulling account profiles and remote configuration from Worker..."
@@ -75,20 +68,6 @@ if not os.path.exists("data/active_accounts.json"):
 with open("data/active_accounts.json") as f:
     active = json.load(f)
 
-# Unpack modern MT5 build on host runner if available
-tar_path = "data/mt5_modern_build.tar.gz"
-cache_dir = "/tmp/mt5_modern_cache"
-has_modern_package = False
-if os.path.exists(tar_path) and os.path.getsize(tar_path) > 10 * 1024 * 1024:
-    if not os.path.exists(os.path.join(cache_dir, "terminal64.exe")):
-        print(f"[Cloud Harness] Extracting modern MT5 package ({os.path.getsize(tar_path)} bytes) on host...")
-        os.makedirs(cache_dir, exist_ok=True)
-        res = subprocess.run(["tar", "-xzf", tar_path, "-C", cache_dir])
-        if res.returncode == 0 and os.path.exists(os.path.join(cache_dir, "terminal64.exe")):
-            has_modern_package = True
-    else:
-        has_modern_package = True
-
 target_dir = "/opt/wineprefix/drive_c/Program Files/MetaTrader 5"
 
 for a in active:
@@ -105,25 +84,18 @@ for a in active:
     srv = lines.get('MT5_SERVER', 'Exness-MT5Trial9')
     is_aiwa = 'aiwa' in srv.lower() or 'aiwa' in cname.lower() or 'aiwa' in aid.lower()
     if is_aiwa:
-        srv = 'AiwaCapital-Server'
+        srv = '198.244.200.119:443'
     elif 'real21' in srv.lower() or 'cent' in aid.lower():
-        srv = 'Exness-MT5Real21'
+        srv = '96.0.47.188:443'
     elif 'trial9' in srv.lower() or 'trial' in srv.lower() or 'funded' in aid.lower():
-        srv = 'Exness-MT5Trial9'
+        srv = '96.0.46.31:443'
 
-    # 1. Inject modern build 6328 if package available
-    if has_modern_package:
-        print(f"[Cloud Harness] Injecting modern MT5 build (build 6328) into {cname}...")
-        subprocess.run(["docker", "exec", cname, "wine", "taskkill", "/IM", "terminal64.exe", "/F"], stderr=subprocess.DEVNULL)
-        subprocess.run(["docker", "cp", f"{cache_dir}/.", f"{cname}:{target_dir}/"], check=True)
-        subprocess.run(["docker", "exec", cname, "chmod", "-R", "777", target_dir], stderr=subprocess.DEVNULL)
-
-    # 2. Prepare Config folder & portable mode
+    # 1. Prepare Config folder & portable mode
     subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', f'{target_dir}/Config'], stderr=subprocess.DEVNULL)
     subprocess.run(['docker', 'exec', cname, 'touch', f'{target_dir}/portable.txt'], stderr=subprocess.DEVNULL)
     subprocess.run(['docker', 'exec', cname, 'sed', '-i', 's/terminal64.exe \\/config:mt5cfg.ini/terminal64.exe \\/portable \\/config:mt5cfg.ini/g', '/mt5linux/start.sh'], stderr=subprocess.DEVNULL)
 
-    # 3. Inject servers.dat and pre-compiled bases
+    # 2. Inject servers.dat and pre-compiled bases
     if os.path.exists('config/servers.dat'):
         subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:{target_dir}/Config/servers.dat'], stderr=subprocess.DEVNULL)
     if os.path.exists('config/bases'):
@@ -133,7 +105,7 @@ for a in active:
             if os.path.isdir(b_path):
                 subprocess.run(['docker', 'cp', b_path, f'{cname}:{target_dir}/Bases/'], stderr=subprocess.DEVNULL)
 
-    # 4. Inject mt5cfg.ini (with Api=0 to prevent headless GUI modal prompt hangs)
+    # 3. Inject mt5cfg.ini (with Api=0 to prevent headless GUI modal prompt hangs)
     cfg_content = f'''[Common]
 Login={login}
 Password={pwd}
@@ -159,6 +131,19 @@ NewsEnable=0
 
     print(f'[Cloud Harness] Restarting container {cname} to load MT5 configuration...')
     subprocess.run(['docker', 'restart', cname], check=True)
+    time.sleep(5)
+
+    # Diagnostic: dump running processes and MT5 terminal logs
+    print(f'=== Diagnostics for container {cname} ===')
+    ps_res = subprocess.run(['docker', 'exec', cname, 'ps', 'aux'], capture_output=True, text=True)
+    print(f'Running processes in {cname}:\n{ps_res.stdout}')
+    log_res = subprocess.run(['docker', 'exec', cname, 'sh', '-c', 'find /opt/wineprefix -name "*.log" -exec echo "--- LOG: {} ---" \\; -exec cat {} \\; 2>/dev/null'], capture_output=True)
+    raw = log_res.stdout or b''
+    try:
+        decoded = raw.decode('utf-16le', errors='replace')
+    except Exception:
+        decoded = raw.decode('utf-8', errors='replace')
+    print(f'MT5 log snapshot:\n{decoded[-2000:]}')
 PYEOF
 
 # 4. Wait for active RPyC bridges to become fully ready (Isolated per container)
