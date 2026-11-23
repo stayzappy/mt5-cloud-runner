@@ -4,7 +4,6 @@
 # Pulls compiled standalone engine over-the-air (OTA) and executes in window-mode
 # ==============================================================================
 set -euo pipefail
-export PYTHONUNBUFFERED=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -36,118 +35,55 @@ chmod +x mt5_trader_engine
 
 echo "[Cloud Harness] Engine binary verified: $(./mt5_trader_engine --help | head -n 2 | tail -n 1)"
 
-# 2. Pull modern MT5 build (build >= 6000) from private release
-if [ ! -f "data/mt5_modern_build.tar.gz" ]; then
-    echo "[Cloud Harness] Pulling modern MT5 pre-packaged build from release..."
-    gh release download latest-engine \
-        --repo stayzappy/mt5-forex-bot \
-        --pattern "mt5_modern_build.tar.gz" \
-        --dir data \
-        --clobber || true
-fi
-
-if [ -f "data/mt5_modern_build.tar.gz" ]; then
-    echo "[Cloud Harness] Extracting modern MT5 binaries..."
-    mkdir -p /tmp/mt5_binaries
-    tar -xzf data/mt5_modern_build.tar.gz -C /tmp/mt5_binaries 2>/dev/null || true
-    find /tmp/mt5_binaries -name "terminal64.exe" -exec cp {} /tmp/mt5_binaries/terminal64.exe \; 2>/dev/null || true
-fi
-
-# 3. Pull live account configurations and secrets from Cloudflare Worker
+# 2. Pull live account configurations and secrets from Cloudflare Worker
 echo "[Cloud Harness] Pulling account profiles and remote configuration from Worker..."
 CONTROL_WORKER_URL="${CONTROL_WORKER_URL:-https://mt5-control-studio.zapstream.workers.dev}"
 
 python3 scripts/sync_accounts.py
 
-# 4. Cold-Boot Injection: Create containers while STOPPED, inject profiles, then START
+# 3. Start Docker containers (Hot Boot model: Wine prefix boots with existing Named Pipes)
 ACTIVE_SERVICES=""
 if [ -f "data/active_services.txt" ] && [ -s "data/active_services.txt" ]; then
     ACTIVE_SERVICES=$(tr '\n' ' ' < data/active_services.txt)
-    echo "[Cloud Harness] Creating cold Docker MT5 container(s): $ACTIVE_SERVICES..."
-    docker compose create $ACTIVE_SERVICES
+    echo "[Cloud Harness] Starting active Docker MT5 headless container(s): $ACTIVE_SERVICES..."
+    docker compose up -d $ACTIVE_SERVICES
 else
-    echo "[Cloud Harness] Creating Docker MT5 headless containers..."
-    docker compose create
+    echo "[Cloud Harness] Starting Docker MT5 headless containers..."
+    docker compose up -d
 fi
 
-echo "[Cloud Harness] Pre-injecting modern build, profiles, and registry into cold containers..."
-python3 << 'PYEOF'
+echo "[Cloud Harness] Waiting 10s for container initialization..."
+sleep 10
+
+# 4. Configure auto-login mt5cfg.ini and servers into running containers
+echo "[Cloud Harness] Configuring auto-login mt5cfg.ini and Exness servers for active accounts..."
+python3 -c "
 import json, subprocess, os, sys
 
-if not os.path.exists("data/active_accounts.json"):
-    print("[Cloud Harness] No active accounts found. Exiting cleanly.")
+if not os.path.exists('data/active_accounts.json'):
+    print('[Cloud Harness] No active accounts found. Exiting cleanly.')
     sys.exit(0)
 
-with open("data/active_accounts.json") as f:
+with open('data/active_accounts.json') as f:
     active = json.load(f)
-
-target_dir = "/opt/wineprefix/drive_c/Program Files/MetaTrader 5"
-modern_terminal = "/tmp/mt5_binaries/terminal64.exe"
-if not os.path.exists(modern_terminal):
-    cand = subprocess.run(['find', '/tmp/mt5_binaries', '-name', 'terminal64.exe'], capture_output=True, text=True).stdout.strip()
-    if cand and os.path.exists(cand.splitlines()[0]):
-        modern_terminal = cand.splitlines()[0]
 
 for a in active:
     cname = a['container']
     env_file = a['env_file']
-    aid = a['id']
-    print(f"[Cloud Harness] Pre-injecting cold files for container {cname} ({aid})...", flush=True)
-
+    print(f'[Cloud Harness] Injecting config for {a[\"id\"]} into container {cname}...')
     with open(env_file) as ef:
         lines = dict(line.strip().split('=', 1) for line in ef if '=' in line and not line.startswith('#'))
-
     login = lines.get('MT5_LOGIN', '')
     pwd = lines.get('MT5_PASSWORD', '')
     srv = lines.get('MT5_SERVER', 'Exness-MT5Trial9')
-    if 'aiwa' in srv.lower() or 'aiwa' in cname.lower() or 'aiwa' in aid.lower():
-        srv = 'AiwaCapital-Server'
-    elif 'real21' in srv.lower() or 'cent' in aid.lower():
-        srv = 'Exness-MT5Real21'
-    elif 'trial9' in srv.lower() or 'trial' in srv.lower() or 'funded' in aid.lower():
-        srv = 'Exness-MT5Trial9'
 
-    # A. Inject modern terminal64.exe (build >= 6000)
-    if modern_terminal and os.path.exists(modern_terminal):
-        subprocess.run(['docker', 'cp', modern_terminal, f'{cname}:{target_dir}/terminal64.exe'], check=True)
-        for exe in ['MetaEditor64.exe', 'metatester64.exe']:
-            cand_exe = subprocess.run(['find', '/tmp/mt5_binaries', '-name', exe], capture_output=True, text=True).stdout.strip()
-            if cand_exe and os.path.exists(cand_exe.splitlines()[0]):
-                subprocess.run(['docker', 'cp', cand_exe.splitlines()[0], f'{cname}:{target_dir}/{exe}'], stderr=subprocess.DEVNULL)
+    subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config'], stderr=subprocess.DEVNULL)
+    if os.path.exists('config/servers.dat'):
+        subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/servers.dat'], stderr=subprocess.DEVNULL)
+    if os.path.isdir('config/bases/AiwaCapital-Server'):
+        subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases'], stderr=subprocess.DEVNULL)
+        subprocess.run(['docker', 'cp', 'config/bases/AiwaCapital-Server', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases/'], stderr=subprocess.DEVNULL)
 
-    # B. Inject Config/ (accounts.dat, servers.dat, terminal.ini, settings.ini)
-    profile_cfg = os.path.join('config', 'profiles', cname, 'Config')
-    if os.path.isdir(profile_cfg):
-        subprocess.run(['docker', 'cp', f'{profile_cfg}/.', f'{cname}:{target_dir}/Config/'], check=True)
-    elif os.path.exists('config/servers.dat'):
-        subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:{target_dir}/Config/servers.dat'], stderr=subprocess.DEVNULL)
-
-    # C. Inject user.reg and system.reg (pre-configured Wine registry & IPC classes)
-    user_reg = os.path.join('config', 'profiles', cname, 'user.reg')
-    if os.path.exists(user_reg):
-        subprocess.run(['docker', 'cp', user_reg, f'{cname}:/opt/wineprefix/user.reg'], check=True)
-    sys_reg = os.path.join('config', 'profiles', cname, 'system.reg')
-    if os.path.exists(sys_reg):
-        subprocess.run(['docker', 'cp', sys_reg, f'{cname}:/opt/wineprefix/system.reg'], check=True)
-
-    # C2. Inject AppData/ (Roaming MetaQuotes Terminal settings.ini, origin.txt, portable.txt)
-    profile_appdata = os.path.join('config', 'profiles', cname, 'AppData')
-    if os.path.isdir(profile_appdata):
-        roaming_target = "/opt/wineprefix/drive_c/users/root/AppData"
-        subprocess.run(['docker', 'cp', f'{profile_appdata}/.', f'{cname}:{roaming_target}/'], check=True)
-
-    # C3. Inject native libX11 modal suppressor script
-    if os.path.exists('scripts/modal_suppressor.py'):
-        subprocess.run(['docker', 'cp', 'scripts/modal_suppressor.py', f'{cname}:/mt5linux/modal_suppressor.py'], check=True)
-
-    # D. Inject Bases if available
-    if os.path.exists('config/bases'):
-        for b_name in os.listdir('config/bases'):
-            b_src = os.path.join('config/bases', b_name)
-            if os.path.isdir(b_src):
-                subprocess.run(['docker', 'cp', b_src, f'{cname}:{target_dir}/Bases/'], stderr=subprocess.DEVNULL)
-
-    # E. Inject auto-login mt5cfg.ini
     cfg_content = f'''[Common]
 Login={login}
 Password={pwd}
@@ -168,42 +104,16 @@ Api=0
 Enable=0
 NewsEnable=0
 '''
-    tmp_cfg = f'/tmp/mt5cfg_{cname}.ini'
-    with open(tmp_cfg, 'w') as f:
-        f.write(cfg_content)
-    subprocess.run(['docker', 'cp', tmp_cfg, f'{cname}:/mt5linux/mt5cfg.ini'], check=True)
-    subprocess.run(['docker', 'cp', tmp_cfg, f'{cname}:{target_dir}/mt5cfg.ini'], check=True)
+    p = subprocess.Popen(['docker', 'exec', '-i', cname, 'sh', '-c', 'cat > \"/opt/wineprefix/drive_c/Program Files/MetaTrader 5/mt5cfg.ini\" && cp \"/opt/wineprefix/drive_c/Program Files/MetaTrader 5/mt5cfg.ini\" /mt5linux/mt5cfg.ini'], stdin=subprocess.PIPE)
+    p.communicate(input=cfg_content.encode())
 
-print("[Cloud Harness] Cold pre-injection completed successfully.")
-PYEOF
-
-# 5. Start containers (Wine boots with modern build and profiles in place)
-if [ -n "$ACTIVE_SERVICES" ]; then
-    echo "[Cloud Harness] Starting Docker MT5 container(s): $ACTIVE_SERVICES..."
-    docker compose start $ACTIVE_SERVICES
-else
-    echo "[Cloud Harness] Starting all Docker MT5 containers..."
-    docker compose start
-fi
-
-echo "[Cloud Harness] Waiting 25s for Wine and MT5 bridge initialization..."
-sleep 25
-
-# 6. Modal Dialog Suppressor: Keep X11 display clear of any modal wizard dialogs that block IPC
-echo "[Cloud Harness] Launching native libX11 modal dialog suppressor daemon in container(s)..."
-python3 -c "
-import json, subprocess, os
-if os.path.exists('data/active_accounts.json'):
-    with open('data/active_accounts.json') as f:
-        active = json.load(f)
-    for a in active:
-        cname = a['container']
-        subprocess.run(['docker', 'exec', '-d', '-e', 'DISPLAY=:100', cname, 'python3', '/mt5linux/modal_suppressor.py'])
+    print(f'[Cloud Harness] Restarting container {cname} to load MT5 configuration...')
+    subprocess.run(['docker', 'restart', cname], check=True)
 "
 
-# 7. Wait for active RPyC bridges to become fully ready (TCP socket probe)
+# 5. Wait for active RPyC bridges to become fully ready (TCP socket probe)
 echo "[Cloud Harness] Validating active MT5 RPyC bridges..."
-python3 << 'EOF'
+python3 -c "
 import os, sys, time, json, subprocess
 
 if not os.path.exists('data/active_accounts.json'):
@@ -219,32 +129,11 @@ for a in active:
     print(f'[Cloud Harness] Probing MT5 RPyC bridge in container {cname} (port 18812 / host {port} for {aid})...')
     ok = False
     for attempt in range(1, 46):
-        cmd = ['docker', 'exec', cname, 'python3', '-c', 'import socket; s = socket.socket(); s.settimeout(2.0); s.connect(("127.0.0.1", 18812)); s.close()']
+        cmd = ['docker', 'exec', cname, 'python3', '-c', 'import socket; s = socket.socket(); s.settimeout(2.0); s.connect((\"127.0.0.1\", 18812)); s.close()']
         res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if res.returncode == 0:
             ok = True
             print(f'[Cloud Harness] MT5 RPyC bridge in container {cname} is LISTENING and READY (attempt {attempt}).')
-            # Warm up MT5 IPC directly inside container
-            warmup_code = """
-import rpyc, time
-for a_idx in range(1, 15):
-    try:
-        c = rpyc.classic.connect('127.0.0.1', 18812)
-        c._config['sync_request_timeout'] = 60
-        m = c.modules['MetaTrader5']
-        if m.initialize():
-            acc = m.account_info()
-            print(f'[Cloud Harness] MT5 IPC warm-up SUCCESS: login={acc.login if acc else None}, balance={acc.balance if acc else None}', flush=True)
-            c.close()
-            break
-        err = m.last_error()
-        print(f'[Cloud Harness] MT5 initialize returned False: {err} (attempt {a_idx})', flush=True)
-        c.close()
-    except Exception as e:
-        print(f'[Cloud Harness] Warm-up attempt {a_idx}: {e}', flush=True)
-    time.sleep(3)
-"""
-            subprocess.run(['docker', 'exec', cname, 'python3', '-c', warmup_code])
             break
         time.sleep(2.0)
     if not ok:
@@ -253,10 +142,10 @@ for a_idx in range(1, 15):
         subprocess.run(['docker', 'logs', '--tail', '50', cname])
         sys.exit(1)
 print('[Cloud Harness] All active MT5 RPyC bridges verified ready.')
-EOF
+"
 sleep 3
 
-# 7. Launch bots dynamically for active accounts
+# 6. Launch bots dynamically for active accounts
 RUN_FLAGS=""
 if [ "${DRY_RUN:-false}" = "true" ]; then
     echo "[Cloud Harness] DRY RUN MODE ENABLED: Bot will simulate operations without live order execution."
