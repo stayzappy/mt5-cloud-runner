@@ -195,8 +195,8 @@ NewsEnable=0
 PYEOF
 
 # 4. Wait for active RPyC bridges to become fully ready (Direct Host RPyC Probe)
-echo "[Cloud Harness] Installing rpyc on host runner for zero-overhead validation..."
-python3 -m pip install --quiet rpyc
+echo "[Cloud Harness] Installing pinned rpyc==5.2.3 on host runner for protocol parity..."
+python3 -m pip install --quiet 'rpyc==5.2.3'
 
 echo "[Cloud Harness] Validating active MT5 RPyC bridges and broker authentication..."
 python3 << 'EOF'
@@ -244,7 +244,7 @@ for a in active:
                 print(f'[Cloud Harness] Attempt {attempt}/45: Bridge listening, MT5 initializing (init={init_ok}, login={login}, err={err})...', flush=True)
         except Exception as ex:
             if attempt % 5 == 0 or attempt == 1:
-                print(f'[Cloud Harness] Attempt {attempt}/45: Waiting for bridge on port {port} ({ex.__class__.__name__})...', flush=True)
+                print(f'[Cloud Harness] Attempt {attempt}/45: Waiting for bridge on port {port} ({ex.__class__.__name__}: {ex})...', flush=True)
         time.sleep(2.0)
 
     if not ok:
