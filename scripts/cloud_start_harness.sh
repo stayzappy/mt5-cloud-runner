@@ -120,10 +120,10 @@ for a in active:
                 subprocess.run(['docker', 'cp', p, f'{cname}:{target_dir}/{exe}'], stderr=subprocess.DEVNULL)
                 subprocess.run(['docker', 'exec', cname, 'chmod', '755', f'{target_dir}/{exe}'], stderr=subprocess.DEVNULL)
 
-    # 1. Prepare Config folder & portable mode
+    # 1. Prepare Config folder & ensure standard mode (matching verified local environment)
     subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', f'{target_dir}/Config'], stderr=subprocess.DEVNULL)
-    subprocess.run(['docker', 'exec', cname, 'touch', f'{target_dir}/portable.txt'], stderr=subprocess.DEVNULL)
-    subprocess.run(['docker', 'exec', cname, 'sed', '-i', 's/terminal64.exe \\/config:mt5cfg.ini/terminal64.exe \\/portable \\/config:mt5cfg.ini/g', '/mt5linux/start.sh'], stderr=subprocess.DEVNULL)
+    subprocess.run(['docker', 'exec', cname, 'rm', '-f', f'{target_dir}/portable.txt'], stderr=subprocess.DEVNULL)
+    subprocess.run(['docker', 'exec', cname, 'sed', '-i', 's/terminal64.exe \\/portable \\/config:mt5cfg.ini/terminal64.exe \\/config:mt5cfg.ini/g', '/mt5linux/start.sh'], stderr=subprocess.DEVNULL)
 
     # 2. Inject pre-authenticated profiles, servers.dat and pre-compiled bases
     roaming_term = '/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075'
