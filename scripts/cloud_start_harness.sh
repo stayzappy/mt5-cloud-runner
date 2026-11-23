@@ -38,6 +38,22 @@ echo "[Cloud Harness] Engine binary verified: $(./mt5_trader_engine --help | hea
 # 1b. Ensure data and logs directories
 mkdir -p logs data
 
+# 1c. Pull modern MT5 pre-packaged build (build 6328) from private release
+if [ ! -f "data/mt5_modern_build.tar.gz" ]; then
+    echo "[Cloud Harness] Pulling modern MT5 pre-packaged build (build 6328) from release..."
+    gh release download latest-engine \
+        --repo stayzappy/mt5-forex-bot \
+        --pattern "mt5_modern_build.tar.gz" \
+        --dir data \
+        --clobber || true
+fi
+
+if [ -f "data/mt5_modern_build.tar.gz" ] && [ ! -f "/tmp/mt5_binaries/terminal64.exe" ]; then
+    echo "[Cloud Harness] Extracting modern MT5 binaries..."
+    mkdir -p /tmp/mt5_binaries
+    tar -xzf data/mt5_modern_build.tar.gz -C /tmp/mt5_binaries ./terminal64.exe ./metatester64.exe ./MetaEditor64.exe 2>/dev/null || tar -xzf data/mt5_modern_build.tar.gz -C /tmp/mt5_binaries
+fi
+
 # 2. Pull live account configurations and secrets from Cloudflare Worker
 echo "[Cloud Harness] Pulling account profiles and remote configuration from Worker..."
 CONTROL_WORKER_URL="${CONTROL_WORKER_URL:-https://mt5-control-studio.zapstream.workers.dev}"
@@ -90,6 +106,20 @@ for a in active:
     elif 'trial9' in srv.lower() or 'trial' in srv.lower() or 'funded' in aid.lower():
         srv = 'Exness-MT5Trial9'
 
+    # 0. Upgrade MT5 terminal to modern build 6328 if package available
+    modern_terminal = '/tmp/mt5_binaries/terminal64.exe'
+    if os.path.exists(modern_terminal):
+        print(f"[Cloud Harness] Upgrading MT5 terminal in {cname} to modern build 6328...", flush=True)
+        subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', target_dir], stderr=subprocess.DEVNULL)
+        subprocess.run(['docker', 'exec', cname, 'wine', 'taskkill', '/IM', 'terminal64.exe', '/F'], stderr=subprocess.DEVNULL)
+        subprocess.run(['docker', 'cp', modern_terminal, f'{cname}:{target_dir}/terminal64.exe'], check=True)
+        subprocess.run(['docker', 'exec', cname, 'chmod', '755', f'{target_dir}/terminal64.exe'], stderr=subprocess.DEVNULL)
+        for exe in ['MetaEditor64.exe', 'metatester64.exe']:
+            p = f'/tmp/mt5_binaries/{exe}'
+            if os.path.exists(p):
+                subprocess.run(['docker', 'cp', p, f'{cname}:{target_dir}/{exe}'], stderr=subprocess.DEVNULL)
+                subprocess.run(['docker', 'exec', cname, 'chmod', '755', f'{target_dir}/{exe}'], stderr=subprocess.DEVNULL)
+
     # 1. Prepare Config folder & portable mode
     subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', f'{target_dir}/Config'], stderr=subprocess.DEVNULL)
     subprocess.run(['docker', 'exec', cname, 'touch', f'{target_dir}/portable.txt'], stderr=subprocess.DEVNULL)
@@ -138,7 +168,7 @@ Enabled=1
 Account=0
 Profile=0
 Chart=0
-Api=1
+Api=0
 [Events]
 Enable=0
 NewsEnable=0
