@@ -57,7 +57,7 @@ sleep 10
 
 # 4. Configure auto-login mt5cfg.ini and servers into running containers
 echo "[Cloud Harness] Configuring auto-login mt5cfg.ini and Exness servers for active accounts..."
-python3 -c "
+python3 << 'EOF'
 import json, subprocess, os, sys
 
 if not os.path.exists('data/active_accounts.json'):
@@ -70,7 +70,7 @@ with open('data/active_accounts.json') as f:
 for a in active:
     cname = a['container']
     env_file = a['env_file']
-    print(f'[Cloud Harness] Injecting config for {a[\"id\"]} into container {cname}...')
+    print(f'[Cloud Harness] Injecting config for {a["id"]} into container {cname}...')
     with open(env_file) as ef:
         lines = dict(line.strip().split('=', 1) for line in ef if '=' in line and not line.startswith('#'))
     login = lines.get('MT5_LOGIN', '')
@@ -120,16 +120,16 @@ Api=0
 Enable=0
 NewsEnable=0
 '''
-    p = subprocess.Popen(['docker', 'exec', '-i', cname, 'sh', '-c', 'cat > \"/opt/wineprefix/drive_c/Program Files/MetaTrader 5/mt5cfg.ini\" && cp \"/opt/wineprefix/drive_c/Program Files/MetaTrader 5/mt5cfg.ini\" /mt5linux/mt5cfg.ini'], stdin=subprocess.PIPE)
+    p = subprocess.Popen(['docker', 'exec', '-i', cname, 'sh', '-c', f'cat > "{target_dir}/mt5cfg.ini" && cp "{target_dir}/mt5cfg.ini" /mt5linux/mt5cfg.ini'], stdin=subprocess.PIPE)
     p.communicate(input=cfg_content.encode())
 
     print(f'[Cloud Harness] Restarting container {cname} to load MT5 configuration...')
     subprocess.run(['docker', 'restart', cname], check=True)
-"
+EOF
 
 # 5. Wait for active RPyC bridges to become fully ready (TCP socket probe)
 echo "[Cloud Harness] Validating active MT5 RPyC bridges..."
-python3 -c "
+python3 << 'EOF'
 import os, sys, time, json, subprocess
 
 if not os.path.exists('data/active_accounts.json'):
@@ -145,7 +145,7 @@ for a in active:
     print(f'[Cloud Harness] Probing MT5 RPyC bridge in container {cname} (port 18812 / host {port} for {aid})...')
     ok = False
     for attempt in range(1, 46):
-        cmd = ['docker', 'exec', cname, 'python3', '-c', 'import socket; s = socket.socket(); s.settimeout(2.0); s.connect((\"127.0.0.1\", 18812)); s.close()']
+        cmd = ['docker', 'exec', cname, 'python3', '-c', 'import socket; s = socket.socket(); s.settimeout(2.0); s.connect(("127.0.0.1", 18812)); s.close()']
         res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if res.returncode == 0:
             ok = True
@@ -158,7 +158,7 @@ for a in active:
         subprocess.run(['docker', 'logs', '--tail', '50', cname])
         sys.exit(1)
 print('[Cloud Harness] All active MT5 RPyC bridges verified ready.')
-"
+EOF
 sleep 3
 
 # 6. Launch bots dynamically for active accounts
