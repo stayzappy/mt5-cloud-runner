@@ -49,10 +49,11 @@ if [ ! -f "data/mt5_modern_build.tar.gz" ]; then
         --clobber || true
 fi
 
-if [ -f "data/mt5_modern_build.tar.gz" ] && [ ! -f "/tmp/mt5_binaries/terminal64.exe" ]; then
+if [ -f "data/mt5_modern_build.tar.gz" ]; then
     echo "[Cloud Harness] Extracting modern MT5 binaries..."
     mkdir -p /tmp/mt5_binaries
-    tar -xzf data/mt5_modern_build.tar.gz -C /tmp/mt5_binaries ./terminal64.exe ./metatester64.exe ./MetaEditor64.exe 2>/dev/null || tar -xzf data/mt5_modern_build.tar.gz -C /tmp/mt5_binaries
+    tar -xzf data/mt5_modern_build.tar.gz -C /tmp/mt5_binaries 2>/dev/null || true
+    find /tmp/mt5_binaries -name "terminal64.exe" -exec cp {} /tmp/mt5_binaries/terminal64.exe \; 2>/dev/null || true
 fi
 
 # 2. Pull live account configurations and secrets from Cloudflare Worker
@@ -109,15 +110,21 @@ for a in active:
 
     # 0. Upgrade MT5 terminal to modern build 6328 if package available
     modern_terminal = '/tmp/mt5_binaries/terminal64.exe'
-    if os.path.exists(modern_terminal):
-        print(f"[Cloud Harness] Upgrading MT5 terminal in {cname} to modern build 6328...", flush=True)
+    if not os.path.exists(modern_terminal):
+        cand = subprocess.run(['find', '/tmp/mt5_binaries', '-name', 'terminal64.exe'], capture_output=True, text=True).stdout.strip()
+        if cand and os.path.exists(cand.splitlines()[0]):
+            modern_terminal = cand.splitlines()[0]
+
+    if modern_terminal and os.path.exists(modern_terminal):
+        print(f"[Cloud Harness] Upgrading MT5 terminal in {cname} to modern build 6328 (from {modern_terminal})...", flush=True)
         subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', target_dir], stderr=subprocess.DEVNULL)
         subprocess.run(['docker', 'exec', cname, 'wine', 'taskkill', '/IM', 'terminal64.exe', '/F'], stderr=subprocess.DEVNULL)
         subprocess.run(['docker', 'cp', modern_terminal, f'{cname}:{target_dir}/terminal64.exe'], check=True)
         subprocess.run(['docker', 'exec', cname, 'chmod', '755', f'{target_dir}/terminal64.exe'], stderr=subprocess.DEVNULL)
         for exe in ['MetaEditor64.exe', 'metatester64.exe']:
-            p = f'/tmp/mt5_binaries/{exe}'
-            if os.path.exists(p):
+            cand_exe = subprocess.run(['find', '/tmp/mt5_binaries', '-name', exe], capture_output=True, text=True).stdout.strip()
+            if cand_exe and os.path.exists(cand_exe.splitlines()[0]):
+                p = cand_exe.splitlines()[0]
                 subprocess.run(['docker', 'cp', p, f'{cname}:{target_dir}/{exe}'], stderr=subprocess.DEVNULL)
                 subprocess.run(['docker', 'exec', cname, 'chmod', '755', f'{target_dir}/{exe}'], stderr=subprocess.DEVNULL)
 
@@ -126,7 +133,12 @@ for a in active:
     subprocess.run(['docker', 'exec', cname, 'rm', '-f', f'{target_dir}/portable.txt'], stderr=subprocess.DEVNULL)
     subprocess.run(['docker', 'exec', cname, 'sed', '-i', 's/terminal64.exe \\/portable \\/config:mt5cfg.ini/terminal64.exe \\/config:mt5cfg.ini/g', '/mt5linux/start.sh'], stderr=subprocess.DEVNULL)
 
-    # 2. Inject pre-authenticated profiles, servers.dat and pre-compiled bases
+    # 2. Inject pre-authenticated profiles, user.reg, servers.dat and pre-compiled bases
+    user_reg = os.path.join('config', 'profiles', cname, 'user.reg')
+    if os.path.exists(user_reg):
+        print(f"[Cloud Harness] Injecting pre-authenticated user.reg for container {cname}...", flush=True)
+        subprocess.run(['docker', 'cp', user_reg, f'{cname}:/opt/wineprefix/user.reg'], check=True)
+
     roaming_term = '/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075'
     profile_cfg = os.path.join('config', 'profiles', cname, 'Config')
 
@@ -252,6 +264,11 @@ for a in active:
             else:
                 print(f'[Cloud Harness] Attempt {attempt}/45: Bridge listening, MT5 initializing (init={init_ok}, login={login}, err={err})...', flush=True)
         except Exception as ex:
+            # Defensive modal dismissal if MT5 popped up any modal dialog
+            subprocess.run([
+                'docker', 'exec', cname, 'sh', '-c',
+                'DISPLAY=:100 xdotool search --name "Open an Account" windowkill 2>/dev/null || DISPLAY=:100 xdotool key Escape 2>/dev/null || true'
+            ], stderr=subprocess.DEVNULL)
             if attempt % 3 == 0 or attempt == 1:
                 print(f'[Cloud Harness] Attempt {attempt}/45: Waiting for bridge on port {port} ({ex.__class__.__name__}: {ex})...', flush=True)
         time.sleep(2.0)
