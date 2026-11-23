@@ -29,6 +29,11 @@ on:
         required: false
         default: ''
         type: string
+      window_mode:
+        description: 'Single evaluation window mode (--window-mode)'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: mt5-cloud-session
@@ -66,6 +71,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           FORCE_RUN: ${{ inputs.force || github.event.client_payload.force || 'false' }}
           DRY_RUN: ${{ inputs.dry_run || github.event.client_payload.dry_run || 'false' }}
+          WINDOW_MODE: ${{ inputs.window_mode || github.event.client_payload.window_mode || 'false' }}
           TARGET_ACCOUNT: ${{ inputs.target_account || github.event.client_payload.target_account || '' }}
         run: |
           bash scripts/cloud_start_harness.sh

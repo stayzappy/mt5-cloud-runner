@@ -202,6 +202,9 @@ echo "[Cloud Harness] Validating active MT5 RPyC bridges and broker authenticati
 python3 << 'EOF'
 import json, socket, time, os, sys, urllib.request, rpyc
 
+# Prevent any socket operation from hanging indefinitely
+socket.setdefaulttimeout(15.0)
+
 if not os.path.exists('data/active_accounts.json'):
     sys.exit(0)
 
@@ -221,14 +224,25 @@ for a in active:
     for attempt in range(1, 46):
         try:
             conn = rpyc.classic.connect('127.0.0.1', port)
-            conn._config['sync_request_timeout'] = 15
+            conn._config['sync_request_timeout'] = 10
             mt5 = conn.modules['MetaTrader5']
             init_ok = mt5.initialize()
+            if not init_ok:
+                init_ok = mt5.initialize(r"C:\Program Files\MetaTrader 5\terminal64.exe")
             acc = mt5.account_info()
             login = int(getattr(acc, 'login', 0)) if acc else 0
             bal = float(getattr(acc, 'balance', 0.0)) if acc else 0.0
             ccy = str(getattr(acc, 'currency', '')) if acc else ''
-            conn.close()
+            err = None
+            if not (init_ok and (login > 0 or expected_login == 0)):
+                try:
+                    err = mt5.last_error()
+                except Exception:
+                    pass
+            try:
+                conn.close()
+            except Exception:
+                pass
 
             if init_ok and (login > 0 or expected_login == 0):
                 print(f'[Cloud Harness] MT5 {aid} is FULLY AUTHENTICATED on port {port}: Login #{login} | Balance: {bal:,.2f} {ccy} (attempt {attempt}).', flush=True)
@@ -236,14 +250,9 @@ for a in active:
                 ok = True
                 break
             else:
-                err = None
-                try:
-                    err = mt5.last_error()
-                except Exception:
-                    pass
                 print(f'[Cloud Harness] Attempt {attempt}/45: Bridge listening, MT5 initializing (init={init_ok}, login={login}, err={err})...', flush=True)
         except Exception as ex:
-            if attempt % 5 == 0 or attempt == 1:
+            if attempt % 3 == 0 or attempt == 1:
                 print(f'[Cloud Harness] Attempt {attempt}/45: Waiting for bridge on port {port} ({ex.__class__.__name__}: {ex})...', flush=True)
         time.sleep(2.0)
 
@@ -328,11 +337,11 @@ if [ "${DRY_RUN:-false}" = "true" ]; then
     RUN_FLAGS="$RUN_FLAGS --dry-run"
 fi
 
-if [ "${CONTINUOUS_SESSION:-false}" = "true" ] || [ "${EVENT_NAME:-}" != "schedule" ]; then
-    echo "[Cloud Harness] Discretionary / Manual session triggered (Event: ${EVENT_NAME:-manual}). Running in CONTINUOUS mode..."
-else
-    echo "[Cloud Harness] Automated scheduled cron session. Running with auto-exit --window-mode..."
+if [ "${WINDOW_MODE:-false}" = "true" ] || [ "${EVENT_NAME:-}" = "schedule" ]; then
+    echo "[Cloud Harness] Running with auto-exit --window-mode..."
     RUN_FLAGS="$RUN_FLAGS --window-mode"
+else
+    echo "[Cloud Harness] Discretionary / Manual session triggered (Event: ${EVENT_NAME:-manual}). Running in CONTINUOUS mode..."
 fi
 
 NUM_ACCOUNTS=0
