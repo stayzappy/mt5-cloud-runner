@@ -194,10 +194,13 @@ NewsEnable=0
     print(f'MT5 log snapshot:\n{decoded[-2000:]}')
 PYEOF
 
-# 4. Wait for active RPyC bridges to become fully ready (Isolated per container)
-echo "[Cloud Harness] Validating active MT5 RPyC bridges..."
+# 4. Wait for active RPyC bridges to become fully ready (Direct Host RPyC Probe)
+echo "[Cloud Harness] Installing rpyc on host runner for zero-overhead validation..."
+python3 -m pip install --quiet rpyc
+
+echo "[Cloud Harness] Validating active MT5 RPyC bridges and broker authentication..."
 python3 << 'EOF'
-import json, socket, time, os, sys, urllib.request, subprocess
+import json, socket, time, os, sys, urllib.request, rpyc
 
 if not os.path.exists('data/active_accounts.json'):
     sys.exit(0)
@@ -212,36 +215,40 @@ for a in active:
     cname = a['container']
     port = int(a['rpyc_port'])
     aid = a['id']
-    print(f'[Cloud Harness] Probing MT5 RPyC bridge in container {cname} (port 18812 / host {port} for {aid})...')
+    expected_login = int(a.get('mt5_login', 0))
+    print(f'[Cloud Harness] Probing MT5 RPyC bridge on 127.0.0.1:{port} for account {aid} ({cname})...', flush=True)
     ok = False
     for attempt in range(1, 46):
-        # 1. Deep probe via Wine Python RPyC: verify bridge, mt5.initialize(), and broker login
-        cmd = [
-            'docker', 'exec', cname, 'wine', 'python', '-c',
-            "import rpyc; conn = rpyc.classic.connect('127.0.0.1', 18812); mt5 = conn.modules['MetaTrader5']; ok = mt5.initialize(); acc = mt5.account_info(); l = getattr(acc, 'login', 0); b = getattr(acc, 'balance', 0); c = getattr(acc, 'currency', ''); print('READY=' + str(ok and (l > 0)) + '|INIT=' + str(ok) + '|LOGIN=' + str(l) + '|BAL=' + str(b) + ' ' + str(c)); conn.close()"
-        ]
-        res = subprocess.run(cmd, capture_output=True, text=True)
-        out = (res.stdout or '').strip()
-        print(f"[Cloud Harness] Attempt {attempt}/45 for {cname}: {out or 'connecting...'}", flush=True)
-        if 'READY=True' in out or (res.returncode == 0 and 'INIT=True' in out):
-            # 2. Verify host port forwarding is also open and reachable
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(2.0)
-                s.connect(('127.0.0.1', port))
-                s.close()
-                ok = True
-                print(f'[Cloud Harness] MT5 in container {cname} is FULLY INITIALIZED and READY ({out}, attempt {attempt}).')
+        try:
+            conn = rpyc.classic.connect('127.0.0.1', port)
+            conn._config['sync_request_timeout'] = 15
+            mt5 = conn.modules['MetaTrader5']
+            init_ok = mt5.initialize()
+            acc = mt5.account_info()
+            login = int(getattr(acc, 'login', 0)) if acc else 0
+            bal = float(getattr(acc, 'balance', 0.0)) if acc else 0.0
+            ccy = str(getattr(acc, 'currency', '')) if acc else ''
+            conn.close()
+
+            if init_ok and (login > 0 or expected_login == 0):
+                print(f'[Cloud Harness] MT5 {aid} is FULLY AUTHENTICATED on port {port}: Login #{login} | Balance: {bal:,.2f} {ccy} (attempt {attempt}).', flush=True)
                 ready_accounts.append(a)
+                ok = True
                 break
-            except Exception:
-                pass
-        elif attempt % 5 == 0:
-            print(f'[Cloud Harness] Waiting for {cname} MT5 initialization ({out or "booting..."}, attempt {attempt}/45)...')
+            else:
+                err = None
+                try:
+                    err = mt5.last_error()
+                except Exception:
+                    pass
+                print(f'[Cloud Harness] Attempt {attempt}/45: Bridge listening, MT5 initializing (init={init_ok}, login={login}, err={err})...', flush=True)
+        except Exception as ex:
+            if attempt % 5 == 0 or attempt == 1:
+                print(f'[Cloud Harness] Attempt {attempt}/45: Waiting for bridge on port {port} ({ex.__class__.__name__})...', flush=True)
         time.sleep(2.0)
 
     if not ok:
-        print(f'[Cloud Harness] WARNING: Container {cname} bridge failed to bind on host port {port} within 60s! Skipping container.')
+        print(f'[Cloud Harness] WARNING: Container {cname} bridge failed to bind on host port {port} within 90s! Skipping container.')
         failed_accounts.append(a)
 
 # Dispatch real-time Telegram alerts for failed container bridges
