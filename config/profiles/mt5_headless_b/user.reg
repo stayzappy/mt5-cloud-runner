@@ -221,8 +221,8 @@ WINE REGISTRY Version 2
 [Software\\Classes\\Installer\\Dependencies\\CPython-3.12\\Dependents\\{e9b7c837-5066-4f10-851a-69179f987b18}] 1727767911
 #time=1db13d3fb8e7f8c
 
-[Software\\MetaQuotes Software] 1795428392
-#time=1dd7b3250af899e
+[Software\\MetaQuotes Software] 1795434660
+#time=1dd7b40e8d6fc4e
 "AP"="api1.cdnfx.net=318;api5.cdnfx.net=328;api14.cdnfx.net=356;api10.cdnfx.net=368;api7.cdnfx.net=371;api6.cdnfx.net=383;api13.cdnfx.net=394;api4.cdnfx.net=397;api2.cdnfx.net=447;api11.cdnfx.net=458;api3.cdnfx.net=521;api8.cdnfx.net=524;api9.cdnfx.net=539;api12.cdnfx.net=570"
 "AP.Time"="1790243072"
 "Cloud.Servers"="agent1=373;agent2=207;agent3=185;agent4=266;agent5=307;agent6=152;agent7=151"
@@ -230,7 +230,7 @@ WINE REGISTRY Version 2
 "Hosting.Server"="VPS London LD6 081"
 "ID"="4916961333422077495"
 "Install.Time"="1771619383"
-"Trade.Server"="AiwaCapital-Server"
+"Trade.Server"="Exness-MT5Trial9"
 
 [Software\\MetaQuotes Software\\MetaTrader 5] 1790246243
 #time=1dd4c10af5e7e88
@@ -239,12 +239,12 @@ WINE REGISTRY Version 2
 [Software\\MetaQuotes Software\\MetaTrader 5\\Settings] 1771619412
 #time=1dca2a7b6dc5a8a
 
-[Software\\MetaQuotes Software\\Settings] 1795430775
-#time=1dd7b37dce052ea
+[Software\\MetaQuotes Software\\Settings] 1795434485
+#time=1dd7b4080a9cdc2
 "City"="Lagos"
 "Country"="Nigeria"
 "GeoCountry"="NG"
-"IP"="105.113.107.91"
+"IP"="105.113.84.47"
 
 [Software\\Microsoft\\Internet Explorer\\Main] 1727767898
 #time=1db13d3f3924642
@@ -793,8 +793,8 @@ WINE REGISTRY Version 2
 [Software\\Wine\\Drivers\\winealsa.drv] 1790601944
 #time=1dd4f4cdd62d326
 
-[Software\\Wine\\Fonts] 1795423436
-#time=1dd7b26c69236d6
+[Software\\Wine\\Fonts] 1795434629
+#time=1dd7b40d68d789c
 "Codepages"="1252,437"
 "LogPixels"=dword:00000060
 

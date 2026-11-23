@@ -239,15 +239,15 @@ WINE REGISTRY Version 2
 [Software\\MetaQuotes Software\\MetaTrader 5\\Settings] 1771619412
 #time=1dca2a7b6dc5a8a
 
-[Software\\MetaQuotes Software\\Settings] 1795430774
-#time=1dd7b37dc6fbca6
+[Software\\MetaQuotes Software\\Settings] 1795434665
+#time=1dd7b40ebbe621c
 "City"="Lagos"
 "Country"="Nigeria"
 "Currency"="USC"
 "Email"="a1435724b3424cdaa4e75626be1bae37@exness.io"
 "FullName"="StandardCent"
 "GeoCountry"="NG"
-"IP"="105.113.107.91"
+"IP"="105.113.84.47"
 
 [Software\\Microsoft\\Internet Explorer\\Main] 1727767898
 #time=1db13d3f3924642
@@ -796,8 +796,8 @@ WINE REGISTRY Version 2
 [Software\\Wine\\Drivers\\winealsa.drv] 1790601944
 #time=1dd4f4cdd62d326
 
-[Software\\Wine\\Fonts] 1795423399
-#time=1dd7b26b095ea62
+[Software\\Wine\\Fonts] 1795434629
+#time=1dd7b40d68d867a
 "Codepages"="1252,437"
 "LogPixels"=dword:00000060
 

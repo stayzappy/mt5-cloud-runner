@@ -221,11 +221,11 @@ WINE REGISTRY Version 2
 [Software\\Classes\\Installer\\Dependencies\\CPython-3.12\\Dependents\\{e9b7c837-5066-4f10-851a-69179f987b18}] 1727767911
 #time=1db13d3fb8e7f8c
 
-[Software\\MetaQuotes Software] 1795428394
-#time=1dd7b32520febbc
+[Software\\MetaQuotes Software] 1795434675
+#time=1dd7b40f18cf636
 "AP"="api8.cdnfx.net=15;api7.cdnfx.net=150;api1.cdnfx.net=211;api14.cdnfx.net=232;api13.cdnfx.net=236;api4.cdnfx.net=261;api10.cdnfx.net=268;api5.cdnfx.net=318;api11.cdnfx.net=332;api12.cdnfx.net=347;api9.cdnfx.net=349;api6.cdnfx.net=360;api3.cdnfx.net=414;api2.cdnfx.net=460"
 "AP.Time"="1771619394"
-"Cloud.Servers"="agent1=376;agent2=233;agent3=189;agent4=272;agent5=295;agent6=153;agent7=158"
+"Cloud.Servers"="agent1=369;agent2=233;agent3=189;agent4=272;agent5=295;agent6=153;agent7=158"
 "Hosting.Ping"="2515"
 "Hosting.Server"="VPS South Africa 02"
 "ID"="4916961333422077495"
@@ -239,12 +239,12 @@ WINE REGISTRY Version 2
 [Software\\MetaQuotes Software\\MetaTrader 5\\Settings] 1771619412
 #time=1dca2a7b6dc5a8a
 
-[Software\\MetaQuotes Software\\Settings] 1795430776
-#time=1dd7b37dd8593ae
+[Software\\MetaQuotes Software\\Settings] 1795434483
+#time=1dd7b407f933400
 "City"="Lagos"
 "Country"="Nigeria"
 "GeoCountry"="NG"
-"IP"="105.113.107.91"
+"IP"="105.113.84.47"
 
 [Software\\Microsoft\\Internet Explorer\\Main] 1727767898
 #time=1db13d3f3924642
@@ -790,8 +790,8 @@ WINE REGISTRY Version 2
 "mshtml"=""
 "winemenubuilder.exe"=""
 
-[Software\\Wine\\Fonts] 1795423487
-#time=1dd7b26e53bed7a
+[Software\\Wine\\Fonts] 1795434629
+#time=1dd7b40d6948d1c
 "Codepages"="1252,437"
 "LogPixels"=dword:00000060
 
