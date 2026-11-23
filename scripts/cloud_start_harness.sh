@@ -176,7 +176,28 @@ fi
 echo "[Cloud Harness] Waiting 15s for Wine and MT5 bridge initialization..."
 sleep 15
 
-# 6. Wait for active RPyC bridges to become fully ready (TCP socket probe)
+# 6. Modal Dialog Suppressor: Keep X11 display clear of any modal wizard dialogs that block IPC
+echo "[Cloud Harness] Launching modal dialog suppressor daemon in container(s)..."
+python3 -c "
+import json, subprocess, os
+if os.path.exists('data/active_accounts.json'):
+    with open('data/active_accounts.json') as f:
+        active = json.load(f)
+    for a in active:
+        cname = a['container']
+        # Initial immediate dismissal
+        subprocess.run(['docker', 'exec', cname, 'bash', '-c', 'DISPLAY=:100 xdotool search --name \"Open an Account\" windowclose 2>/dev/null || DISPLAY=:100 xdotool key Escape 2>/dev/null || true'])
+        # Background daemon to continuously close any modal dialog that pops up
+        daemon_cmd = '''while true; do
+    DISPLAY=:100 xdotool search --name \"Open an Account\" windowclose 2>/dev/null || true
+    DISPLAY=:100 xdotool search --name \"Open an account\" windowclose 2>/dev/null || true
+    DISPLAY=:100 xdotool search --name \"Accounts\" windowclose 2>/dev/null || true
+    sleep 2
+done'''
+        subprocess.run(['docker', 'exec', '-d', cname, 'bash', '-c', daemon_cmd])
+"
+
+# 7. Wait for active RPyC bridges to become fully ready (TCP socket probe)
 echo "[Cloud Harness] Validating active MT5 RPyC bridges..."
 python3 -c "
 import os, sys, time, json, subprocess
