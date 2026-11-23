@@ -127,6 +127,16 @@ for a in active:
     if os.path.exists(user_reg):
         subprocess.run(['docker', 'cp', user_reg, f'{cname}:/opt/wineprefix/user.reg'], check=True)
 
+    # C2. Inject AppData/ (Roaming MetaQuotes Terminal settings.ini, origin.txt, portable.txt)
+    profile_appdata = os.path.join('config', 'profiles', cname, 'AppData')
+    if os.path.isdir(profile_appdata):
+        roaming_target = "/opt/wineprefix/drive_c/users/root/AppData"
+        subprocess.run(['docker', 'cp', f'{profile_appdata}/.', f'{cname}:{roaming_target}/'], check=True)
+
+    # C3. Inject native libX11 modal suppressor script
+    if os.path.exists('scripts/modal_suppressor.py'):
+        subprocess.run(['docker', 'cp', 'scripts/modal_suppressor.py', f'{cname}:/mt5linux/modal_suppressor.py'], check=True)
+
     # D. Inject Bases if available
     if os.path.exists('config/bases'):
         for b_name in os.listdir('config/bases'):
@@ -177,7 +187,7 @@ echo "[Cloud Harness] Waiting 15s for Wine and MT5 bridge initialization..."
 sleep 15
 
 # 6. Modal Dialog Suppressor: Keep X11 display clear of any modal wizard dialogs that block IPC
-echo "[Cloud Harness] Launching modal dialog suppressor daemon in container(s)..."
+echo "[Cloud Harness] Launching native libX11 modal dialog suppressor daemon in container(s)..."
 python3 -c "
 import json, subprocess, os
 if os.path.exists('data/active_accounts.json'):
@@ -185,16 +195,7 @@ if os.path.exists('data/active_accounts.json'):
         active = json.load(f)
     for a in active:
         cname = a['container']
-        # Initial immediate dismissal
-        subprocess.run(['docker', 'exec', cname, 'bash', '-c', 'DISPLAY=:100 xdotool search --name \"Open an Account\" windowclose 2>/dev/null || DISPLAY=:100 xdotool key Escape 2>/dev/null || true'])
-        # Background daemon to continuously close any modal dialog that pops up
-        daemon_cmd = '''while true; do
-    DISPLAY=:100 xdotool search --name \"Open an Account\" windowclose 2>/dev/null || true
-    DISPLAY=:100 xdotool search --name \"Open an account\" windowclose 2>/dev/null || true
-    DISPLAY=:100 xdotool search --name \"Accounts\" windowclose 2>/dev/null || true
-    sleep 2
-done'''
-        subprocess.run(['docker', 'exec', '-d', cname, 'bash', '-c', daemon_cmd])
+        subprocess.run(['docker', 'exec', '-d', cname, 'python3', '/mt5linux/modal_suppressor.py'])
 "
 
 # 7. Wait for active RPyC bridges to become fully ready (TCP socket probe)
