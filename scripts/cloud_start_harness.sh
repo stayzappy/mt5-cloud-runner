@@ -122,10 +122,13 @@ for a in active:
     elif os.path.exists('config/servers.dat'):
         subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:{target_dir}/Config/servers.dat'], stderr=subprocess.DEVNULL)
 
-    # C. Inject user.reg (pre-configured Wine registry)
+    # C. Inject user.reg and system.reg (pre-configured Wine registry & IPC classes)
     user_reg = os.path.join('config', 'profiles', cname, 'user.reg')
     if os.path.exists(user_reg):
         subprocess.run(['docker', 'cp', user_reg, f'{cname}:/opt/wineprefix/user.reg'], check=True)
+    sys_reg = os.path.join('config', 'profiles', cname, 'system.reg')
+    if os.path.exists(sys_reg):
+        subprocess.run(['docker', 'cp', sys_reg, f'{cname}:/opt/wineprefix/system.reg'], check=True)
 
     # C2. Inject AppData/ (Roaming MetaQuotes Terminal settings.ini, origin.txt, portable.txt)
     profile_appdata = os.path.join('config', 'profiles', cname, 'AppData')
@@ -183,8 +186,8 @@ else
     docker compose start
 fi
 
-echo "[Cloud Harness] Waiting 15s for Wine and MT5 bridge initialization..."
-sleep 15
+echo "[Cloud Harness] Waiting 25s for Wine and MT5 bridge initialization..."
+sleep 25
 
 # 6. Modal Dialog Suppressor: Keep X11 display clear of any modal wizard dialogs that block IPC
 echo "[Cloud Harness] Launching native libX11 modal dialog suppressor daemon in container(s)..."
