@@ -212,7 +212,7 @@ python3 -m pip install --quiet 'rpyc==5.2.3'
 
 echo "[Cloud Harness] Validating active MT5 RPyC bridges and broker authentication..."
 python3 << 'EOF'
-import json, socket, time, os, sys, urllib.request, rpyc
+import json, socket, time, os, sys, urllib.request, rpyc, subprocess
 
 # Prevent any socket operation from hanging indefinitely
 socket.setdefaulttimeout(15.0)
