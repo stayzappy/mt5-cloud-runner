@@ -4,6 +4,7 @@
 # Pulls compiled standalone engine over-the-air (OTA) and executes in window-mode
 # ==============================================================================
 set -euo pipefail
+export PYTHONUNBUFFERED=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -221,6 +222,7 @@ for a in active:
         ]
         res = subprocess.run(cmd, capture_output=True, text=True)
         out = (res.stdout or '').strip()
+        print(f"[Cloud Harness] Attempt {attempt}/45 for {cname}: {out or 'connecting...'}", flush=True)
         if 'READY=True' in out or (res.returncode == 0 and 'INIT=True' in out):
             # 2. Verify host port forwarding is also open and reachable
             try:
