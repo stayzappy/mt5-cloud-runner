@@ -238,30 +238,60 @@ for a in active:
         failed_accounts.append(a)
 
 # Dispatch real-time Telegram alerts for failed container bridges
+is_dry_run = os.getenv('DRY_RUN', 'false').lower() == 'true'
+is_force_run = os.getenv('FORCE_RUN', 'false').lower() == 'true'
+
 if failed_accounts:
-    tg_token = os.getenv('TELEGRAM_BOT_TOKEN')
-    tg_chat = os.getenv('TELEGRAM_CHAT_ID')
-    if tg_token and tg_chat:
-        for fa in failed_accounts:
-            msg = (
-                f"🚨 <b>SYSTEM FAULT DETECTED [CRITICAL]</b>\n\n"
-                f"👤 <b>Account:</b> {fa['id']} (<code>#{fa.get('mt5_login', 'unknown')}</code>)\n"
-                f"❌ <b>Error Type:</b> <code>CONTAINER_RPYC_BRIDGE_UNRESPONSIVE</code>\n"
-                f"📝 <b>Details:</b> Container {fa['container']} bridge failed to bind on host port {fa['rpyc_port']} within 60s.\n"
-                f"🕒 <b>Time:</b> <i>{time.strftime('%Y-%m-%d %H:%M:%S UTC')}</i>\n\n"
-                f"👉 <i>Check Cloud Runner logs for container diagnostics.</i>"
-            )
-            try:
-                data = json.dumps({'chat_id': tg_chat, 'text': msg, 'parse_mode': 'HTML'}).encode()
-                req = urllib.request.Request(
-                    f"https://api.telegram.org/bot{tg_token}/sendMessage",
-                    data=data,
-                    headers={'Content-Type': 'application/json'}
+    if is_dry_run or is_force_run:
+        print(f"[Cloud Harness] Suppressing Telegram alerts for {len(failed_accounts)} failed container(s) during dry-run / force test.")
+    else:
+        tg_token = os.getenv('TELEGRAM_BOT_TOKEN')
+        tg_chat = os.getenv('TELEGRAM_CHAT_ID')
+        cooldown_file = 'data/bridge_cooldowns.json'
+        cooldowns = {}
+        try:
+            if os.path.exists(cooldown_file):
+                with open(cooldown_file) as cf:
+                    cooldowns = json.load(cf)
+        except Exception:
+            pass
+
+        now_ts = time.time()
+        if tg_token and tg_chat:
+            for fa in failed_accounts:
+                cname = fa['container']
+                last_alert = cooldowns.get(cname, 0.0)
+                if (now_ts - last_alert) < 3600.0:
+                    print(f"[Cloud Harness] Throttling Telegram alert for {cname} (cooldown active: {int(now_ts - last_alert)}s / 3600s).")
+                    continue
+
+                msg = (
+                    f"🚨 <b>SYSTEM FAULT DETECTED [CRITICAL]</b>\n\n"
+                    f"👤 <b>Account:</b> {fa['id']} (<code>#{fa.get('mt5_login', 'unknown')}</code>)\n"
+                    f"❌ <b>Error Type:</b> <code>CONTAINER_RPYC_BRIDGE_UNRESPONSIVE</code>\n"
+                    f"📝 <b>Details:</b> Container {fa['container']} bridge failed to bind on host port {fa['rpyc_port']} within 90s.\n"
+                    f"🕒 <b>Time:</b> <i>{time.strftime('%Y-%m-%d %H:%M:%S UTC')}</i>\n\n"
+                    f"👉 <i>Check Cloud Runner logs for container diagnostics.</i>"
                 )
-                urllib.request.urlopen(req, timeout=10)
-                print(f"[Cloud Harness] Dispatched Telegram alert for unresponsive container {fa['container']}.")
-            except Exception as tg_err:
-                print(f"[Cloud Harness] Failed to send Telegram alert: {tg_err}")
+                try:
+                    data = json.dumps({'chat_id': tg_chat, 'text': msg, 'parse_mode': 'HTML'}).encode()
+                    req = urllib.request.Request(
+                        f"https://api.telegram.org/bot{tg_token}/sendMessage",
+                        data=data,
+                        headers={'Content-Type': 'application/json'}
+                    )
+                    urllib.request.urlopen(req, timeout=10)
+                    cooldowns[cname] = now_ts
+                    print(f"[Cloud Harness] Dispatched Telegram alert for unresponsive container {fa['container']}.")
+                except Exception as tg_err:
+                    print(f"[Cloud Harness] Failed to send Telegram alert: {tg_err}")
+
+            try:
+                os.makedirs('data', exist_ok=True)
+                with open(cooldown_file, 'w') as cf:
+                    json.dump(cooldowns, cf)
+            except Exception:
+                pass
 
 if not ready_accounts:
     print('[Cloud Harness] ERROR: None of the active accounts bound to their RPyC bridge!')
