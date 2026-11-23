@@ -84,28 +84,45 @@ for a in active:
     srv = lines.get('MT5_SERVER', 'Exness-MT5Trial9')
     is_aiwa = 'aiwa' in srv.lower() or 'aiwa' in cname.lower() or 'aiwa' in aid.lower()
     if is_aiwa:
-        srv = '198.244.200.119:443'
+        srv = 'AiwaCapital-Server'
     elif 'real21' in srv.lower() or 'cent' in aid.lower():
-        srv = '96.0.47.188:443'
+        srv = 'Exness-MT5Real21'
     elif 'trial9' in srv.lower() or 'trial' in srv.lower() or 'funded' in aid.lower():
-        srv = '96.0.46.31:443'
+        srv = 'Exness-MT5Trial9'
 
     # 1. Prepare Config folder & portable mode
     subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', f'{target_dir}/Config'], stderr=subprocess.DEVNULL)
     subprocess.run(['docker', 'exec', cname, 'touch', f'{target_dir}/portable.txt'], stderr=subprocess.DEVNULL)
     subprocess.run(['docker', 'exec', cname, 'sed', '-i', 's/terminal64.exe \\/config:mt5cfg.ini/terminal64.exe \\/portable \\/config:mt5cfg.ini/g', '/mt5linux/start.sh'], stderr=subprocess.DEVNULL)
 
-    # 2. Inject servers.dat and pre-compiled bases
-    if os.path.exists('config/servers.dat'):
-        subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:{target_dir}/Config/servers.dat'], stderr=subprocess.DEVNULL)
-    if os.path.exists('config/bases'):
-        subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', f'{target_dir}/Bases'], stderr=subprocess.DEVNULL)
-        for b_name in os.listdir('config/bases'):
-            b_path = os.path.join('config/bases', b_name)
-            if os.path.isdir(b_path):
-                subprocess.run(['docker', 'cp', b_path, f'{cname}:{target_dir}/Bases/'], stderr=subprocess.DEVNULL)
+    # 2. Inject pre-authenticated profiles, servers.dat and pre-compiled bases
+    roaming_term = '/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075'
+    profile_cfg = os.path.join('config', 'profiles', cname, 'Config')
 
-    # 3. Inject mt5cfg.ini (with Api=0 to prevent headless GUI modal prompt hangs)
+    for d_path in [
+        f'{target_dir}/Config',
+        f'{roaming_term}/config',
+        f'{roaming_term}/Config',
+    ]:
+        subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', d_path], stderr=subprocess.DEVNULL)
+        if os.path.isdir(profile_cfg):
+            subprocess.run(['docker', 'cp', f'{profile_cfg}/.', f'{cname}:{d_path}/'], stderr=subprocess.DEVNULL)
+        elif os.path.exists('config/servers.dat'):
+            subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:{d_path}/servers.dat'], stderr=subprocess.DEVNULL)
+
+    if os.path.exists('config/bases'):
+        for b_path in [
+            f'{target_dir}/Bases',
+            f'{roaming_term}/bases',
+            f'{roaming_term}/Bases',
+        ]:
+            subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', b_path], stderr=subprocess.DEVNULL)
+            for b_name in os.listdir('config/bases'):
+                b_src = os.path.join('config/bases', b_name)
+                if os.path.isdir(b_src):
+                    subprocess.run(['docker', 'cp', b_src, f'{cname}:{b_path}/'], stderr=subprocess.DEVNULL)
+
+    # 3. Inject mt5cfg.ini (matching verified Friday baseline)
     cfg_content = f'''[Common]
 Login={login}
 Password={pwd}
@@ -121,7 +138,7 @@ Enabled=1
 Account=0
 Profile=0
 Chart=0
-Api=0
+Api=1
 [Events]
 Enable=0
 NewsEnable=0
@@ -149,7 +166,7 @@ PYEOF
 # 4. Wait for active RPyC bridges to become fully ready (Isolated per container)
 echo "[Cloud Harness] Validating active MT5 RPyC bridges..."
 python3 << 'EOF'
-import json, socket, time, os, sys, urllib.request
+import json, socket, time, os, sys, urllib.request, subprocess
 
 if not os.path.exists('data/active_accounts.json'):
     sys.exit(0)
@@ -164,21 +181,27 @@ for a in active:
     cname = a['container']
     port = int(a['rpyc_port'])
     aid = a['id']
-    print(f'[Cloud Harness] Probing MT5 RPyC bridge in container {cname} on host port {port} (Account: {aid})...')
+    print(f'[Cloud Harness] Probing MT5 RPyC bridge in container {cname} (port 18812 / host {port} for {aid})...')
     ok = False
-    for attempt in range(1, 31):
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(2.0)
-        try:
-            s.connect(('127.0.0.1', port))
-            s.close()
-            ok = True
-            print(f'[Cloud Harness] MT5 RPyC bridge in container {cname} is LISTENING and READY (attempt {attempt}).')
-            ready_accounts.append(a)
-            break
-        except Exception:
-            s.close()
-            time.sleep(2.0)
+    for attempt in range(1, 46):
+        # 1. Probe inside container namespace (bypasses host docker-proxy SYN-ACK)
+        cmd = ['docker', 'exec', cname, 'python3', '-c',
+               'import socket; s = socket.socket(); s.settimeout(2.0); s.connect(("127.0.0.1", 18812)); s.close()']
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if res.returncode == 0:
+            # 2. Verify host port forwarding is also open and reachable
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(2.0)
+                s.connect(('127.0.0.1', port))
+                s.close()
+                ok = True
+                print(f'[Cloud Harness] MT5 RPyC bridge in container {cname} is LISTENING and READY (attempt {attempt}).')
+                ready_accounts.append(a)
+                break
+            except Exception:
+                pass
+        time.sleep(2.0)
 
     if not ok:
         print(f'[Cloud Harness] WARNING: Container {cname} bridge failed to bind on host port {port} within 60s! Skipping container.')

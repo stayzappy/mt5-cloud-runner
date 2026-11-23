@@ -51,12 +51,6 @@ jobs:
           echo "$PRIVATE_REPO_TOKEN" | gh auth login --with-token
           gh auth status
 
-      - name: Cache Modern MT5 Package
-        uses: actions/cache@v4
-        with:
-          path: data/mt5_modern_build.tar.gz
-          key: mt5-modern-build-pkg-v1
-
       - name: Execute Live Trading Session (OTA Binary)
         env:
           CONTROL_WORKER_URL: ${{ secrets.CONTROL_WORKER_URL || 'https://mt5-control-studio.zapstream.workers.dev' }}
