@@ -10,6 +10,27 @@ import time
 import os
 import sys
 
+def is_target_modal(val: str) -> bool:
+    v = val.strip()
+    if not v:
+        return False
+    vl = v.lower()
+    # Explicitly protect the main terminal window and standard desktop components
+    if any(sig in vl for sig in ["hedge", "exness", "aiwacapital", "toolbox", "default ime", "wine desktop"]):
+        return False
+    # If title starts with digits (e.g. account login "161806031 - ...", "476871582 - ..."), it is the main MT5 terminal
+    first_token = vl.split()[0] if vl.split() else ""
+    if first_token.isdigit():
+        return False
+    # Target dialog titles to dismiss:
+    if vl in ["login", "authorization", "authorisation", "open an account", "accounts", "network", "warning", "error"]:
+        return True
+    if vl.startswith("login") or vl.startswith("open an account") or vl.startswith("wine"):
+        return True
+    if "open an account" in vl:
+        return True
+    return False
+
 def dismiss_dialogs(disp, x11, wm_delete, wm_protocols):
     try:
         root = x11.XDefaultRootWindow(disp)
@@ -52,9 +73,8 @@ def dismiss_dialogs(disp, x11, wm_delete, wm_protocols):
             prop = XTextProperty()
             if x11.XGetWMName(disp, wid, ctypes.byref(prop)):
                 val = prop.value.decode('utf-8', errors='replace') if prop.value else ''
-                val_lower = val.lower()
-                # Targets: "Login", "Open an Account", "Accounts", "Warning", etc.
-                if any(w in val_lower for w in ['login', 'account', 'open', 'wizard', 'unstable', 'connect']):
+                if is_target_modal(val):
+                    print(f"[modal_suppressor] Dismissing modal dialog window {wid}: '{val}'", flush=True)
                     ev = XEvent()
                     ev.type = 33 # ClientMessage
                     ev.xclient.type = 33

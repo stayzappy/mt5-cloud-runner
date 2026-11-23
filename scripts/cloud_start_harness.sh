@@ -195,7 +195,7 @@ if os.path.exists('data/active_accounts.json'):
         active = json.load(f)
     for a in active:
         cname = a['container']
-        subprocess.run(['docker', 'exec', '-d', cname, 'python3', '/mt5linux/modal_suppressor.py'])
+        subprocess.run(['docker', 'exec', '-d', '-e', 'DISPLAY=:100', cname, 'python3', '/mt5linux/modal_suppressor.py'])
 "
 
 # 7. Wait for active RPyC bridges to become fully ready (TCP socket probe)
@@ -239,7 +239,7 @@ if [ "${DRY_RUN:-false}" = "true" ]; then
     RUN_FLAGS="$RUN_FLAGS --dry-run"
 fi
 
-if [ "${WINDOW_MODE:-false}" = "true" ] || [ "${EVENT_NAME:-}" = "schedule" ]; then
+if [ "${WINDOW_MODE:-false}" = "true" ] || [ "${EVENT_NAME:-}" = "schedule" ] || [ "${EVENT_NAME:-}" = "repository_dispatch" ]; then
     echo "[Cloud Harness] Running with auto-exit --window-mode..."
     RUN_FLAGS="$RUN_FLAGS --window-mode"
 else
