@@ -77,12 +77,28 @@ for a in active:
     pwd = lines.get('MT5_PASSWORD', '')
     srv = lines.get('MT5_SERVER', 'Exness-MT5Trial9')
 
-    subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config'], stderr=subprocess.DEVNULL)
-    if os.path.exists('config/servers.dat'):
-        subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Config/servers.dat'], stderr=subprocess.DEVNULL)
-    if os.path.isdir('config/bases/AiwaCapital-Server'):
-        subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', '/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases'], stderr=subprocess.DEVNULL)
-        subprocess.run(['docker', 'cp', 'config/bases/AiwaCapital-Server', f'{cname}:/opt/wineprefix/drive_c/Program Files/MetaTrader 5/Bases/'], stderr=subprocess.DEVNULL)
+    target_dir = "/opt/wineprefix/drive_c/Program Files/MetaTrader 5"
+    subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', f'{target_dir}/Config', f'{target_dir}/Bases'], stderr=subprocess.DEVNULL)
+
+    # 1. Inject verified Config/ from pre-authenticated profiles (accounts.dat, servers.dat, terminal.ini)
+    profile_cfg = os.path.join('config', 'profiles', cname, 'Config')
+    if os.path.isdir(profile_cfg):
+        subprocess.run(['docker', 'cp', f'{profile_cfg}/.', f'{cname}:{target_dir}/Config/'], stderr=subprocess.DEVNULL)
+    elif os.path.exists('config/servers.dat'):
+        subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:{target_dir}/Config/servers.dat'], stderr=subprocess.DEVNULL)
+
+    # 2. Inject all broker Bases (Exness-MT5Real21, Exness-MT5Trial9, AiwaCapital-Server)
+    if os.path.isdir('config/bases'):
+        for b_name in os.listdir('config/bases'):
+            b_src = os.path.join('config/bases', b_name)
+            if os.path.isdir(b_src):
+                subprocess.run(['docker', 'cp', b_src, f'{cname}:{target_dir}/Bases/'], stderr=subprocess.DEVNULL)
+
+    # 3. Inject AppData Roaming terminal preferences
+    profile_appdata = os.path.join('config', 'profiles', cname, 'AppData')
+    if os.path.isdir(profile_appdata):
+        roaming_target = "/opt/wineprefix/drive_c/users/root/AppData"
+        subprocess.run(['docker', 'cp', f'{profile_appdata}/.', f'{cname}:{roaming_target}/'], stderr=subprocess.DEVNULL)
 
     cfg_content = f'''[Common]
 Login={login}
