@@ -214,11 +214,14 @@ for a in active:
     print(f'[Cloud Harness] Probing MT5 RPyC bridge in container {cname} (port 18812 / host {port} for {aid})...')
     ok = False
     for attempt in range(1, 46):
-        # 1. Probe inside container namespace (bypasses host docker-proxy SYN-ACK)
-        cmd = ['docker', 'exec', cname, 'python3', '-c',
-               'import socket; s = socket.socket(); s.settimeout(2.0); s.connect(("127.0.0.1", 18812)); s.close()']
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if res.returncode == 0:
+        # 1. Deep probe via Wine Python RPyC: verify bridge, mt5.initialize(), and broker login
+        cmd = [
+            'docker', 'exec', cname, 'wine', 'python', '-c',
+            "import rpyc; conn = rpyc.classic.connect('127.0.0.1', 18812); mt5 = conn.modules['MetaTrader5']; ok = mt5.initialize(); acc = mt5.account_info(); l = getattr(acc, 'login', 0); b = getattr(acc, 'balance', 0); c = getattr(acc, 'currency', ''); print('READY=' + str(ok and (l > 0)) + '|INIT=' + str(ok) + '|LOGIN=' + str(l) + '|BAL=' + str(b) + ' ' + str(c)); conn.close()"
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        out = (res.stdout or '').strip()
+        if 'READY=True' in out or (res.returncode == 0 and 'INIT=True' in out):
             # 2. Verify host port forwarding is also open and reachable
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -226,11 +229,13 @@ for a in active:
                 s.connect(('127.0.0.1', port))
                 s.close()
                 ok = True
-                print(f'[Cloud Harness] MT5 RPyC bridge in container {cname} is LISTENING and READY (attempt {attempt}).')
+                print(f'[Cloud Harness] MT5 in container {cname} is FULLY INITIALIZED and READY ({out}, attempt {attempt}).')
                 ready_accounts.append(a)
                 break
             except Exception:
                 pass
+        elif attempt % 5 == 0:
+            print(f'[Cloud Harness] Waiting for {cname} MT5 initialization ({out or "booting..."}, attempt {attempt}/45)...')
         time.sleep(2.0)
 
     if not ok:
