@@ -223,6 +223,14 @@ except Exception as e:
     print("GATE_ERROR", e, flush=True)
 '''
 
+def run_gate(cname):
+    # stage the probe into the container via stdin (avoids sh -c quoting issues)
+    p = subprocess.Popen(['docker', 'exec', '-i', cname, 'sh', '-c',
+                          'cat > /tmp/mt5_gate.py && cd /mt5linux && wine python /tmp/mt5_gate.py'],
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out, _ = p.communicate(input=PROBE.encode(), timeout=120)
+    return (out or b'').decode('utf-8', errors='ignore')
+
 def dump_diag(cname, aid):
     print(f'=== DIAGNOSTICS for {cname} ({aid}) ===', file=sys.stderr)
     subprocess.run(['docker', 'exec', cname, 'sh', '-c', 'ps aux | grep -E "terminal64|mt5linux" | grep -v grep'])
@@ -250,9 +258,7 @@ for a in active:
     ok = False
     for attempt in range(1, 31):
         try:
-            res = subprocess.run(['docker', 'exec', cname, 'sh', '-c', f'cd /mt5linux && wine python -c {PROBE!r}'],
-                                 capture_output=True, text=True, timeout=90)
-            out = (res.stdout or '') + (res.stderr or '')
+            out = run_gate(cname)
             if 'GATE_RESULT True' in out:
                 if expected_login is None or f'({expected_login},' in out.replace('GATE_RESULT True ', '('):
                     print(f'[Cloud Harness] Container {cname}: MT5 READY (attempt {attempt}). {out.strip().splitlines()[-1]}', flush=True)
