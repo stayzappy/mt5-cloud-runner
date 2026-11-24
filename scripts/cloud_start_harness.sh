@@ -159,7 +159,8 @@ for a in active:
         sys.exit(1)
 print('[Cloud Harness] All active MT5 RPyC bridges verified ready.')
 EOF
-sleep 3
+echo "[Cloud Harness] Waiting 15s for MT5 terminal broker authorization handshake to settle..."
+sleep 15
 
 # 6. Launch bots dynamically for active accounts
 RUN_FLAGS=""
