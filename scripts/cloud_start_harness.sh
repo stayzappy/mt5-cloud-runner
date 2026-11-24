@@ -55,30 +55,48 @@ fi
 echo "[Cloud Harness] Waiting 10s for container initialization..."
 sleep 10
 
-# 4. Wait for MT5 terminal cold first-boot to complete BEFORE profile injection.
-#    The lprett/mt5linux image now ships an old terminal build; on first boot MT5 runs its
-#    LiveUpdate (which relaunches the terminal at the current build). Profiles injected
-#    before that completes are deleted by the running terminal ("Accounts deleted due old
-#    version") and the account can never authorize afterwards. We therefore wait for the
-#    post-update relaunch first.
-echo "[Cloud Harness] Waiting for MT5 terminal cold first-boot (LiveUpdate) to complete..."
-python3 << 'EOF'
-import json, os, re, sys, time, subprocess
+# 4. Bring every container to a verified MT5-ready state before launching the fleet.
+#
+#    Background: the lprett/mt5linux image now ships an old MT5 terminal build
+#    (5616, while brokers require >= ~6230). On first boot the terminal runs its
+#    LiveUpdate, which relaunches it at the current build after several minutes.
+#    Account profiles injected BEFORE that completes are deleted by the running
+#    old terminal ("Accounts deleted due old version") and the account can never
+#    authorize afterwards -> initialize() fails with -6 Terminal: Authorization
+#    failed. Each cycle therefore: waits for the post-update state, injects the
+#    profiles + credentials, restarts, and verifies with a real MT5-level gate.
+#    A failed cycle re-waits and re-injects, so a slow runner LiveUpdate
+#    self-heals instead of failing permanently.
+READY_MARKER="ALL_CONTAINERS_READY"
+rm -f logs/deep_gate_*.log
+for CYCLE in 1 2 3; do
+    echo "[Cloud Harness] === Readiness cycle ${CYCLE}/3 ==="
+
+    # 4a. Wait for the terminal cold first-boot + LiveUpdate to complete
+    echo "[Cloud Harness] Waiting for MT5 terminal cold first-boot (LiveUpdate) to complete..."
+    python3 << 'EOF'
+import json, os, re, subprocess, time
 
 if not os.path.exists('data/active_accounts.json'):
-    sys.exit(0)
+    raise SystemExit(0)
 
 with open('data/active_accounts.json') as f:
     active = json.load(f)
 
 MT5_DIR = "/opt/wineprefix/drive_c/Program Files/MetaTrader 5"
 
-def all_logs(cname):
-    # MT5 build 5616 writes logs under the install dir; some builds write under
-    # the AppData/Roaming/MetaQuotes/Terminal/<hash>/logs dir. Search both.
+def today_logs(cname):
+    # Only consider the CURRENT day's log: the image ships a stale log from its
+    # build day which would otherwise produce false "ready" signals. Some builds
+    # log under the install dir, others under the AppData terminal hash dir.
+    r = subprocess.run(['docker', 'exec', cname, 'sh', '-c', 'date +%Y%m%d'],
+                       capture_output=True, text=True)
+    today = (r.stdout or '').strip()
+    if not today:
+        return []
     r = subprocess.run(['docker', 'exec', cname, 'sh', '-c',
-                        f'ls -t "{MT5_DIR}/logs/"*.log '
-                        f'/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/*/logs/*.log 2>/dev/null | head -5'],
+                        f'ls "{MT5_DIR}/logs/{today}.log" '
+                        f'/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/*/logs/{today}.log 2>/dev/null'],
                        capture_output=True, text=True)
     return [l for l in (r.stdout or '').strip().splitlines() if l]
 
@@ -89,14 +107,11 @@ def boot_count(cname, logpath):
                        capture_output=True)
     txt = (r.stdout or b'').decode('utf-8', errors='ignore')
     boots = txt.lower().count('successfully initialized')
-    # A terminal start line with build >= 6000 proves the LiveUpdate relaunch happened.
-    builds = [int(m) for m in re.findall(r'build\s+(\d{3,5})', txt, re.IGNORECASE)]
-    updated = any(b >= 6000 for b in builds)
+    # A terminal start line with MT5 build >= 6000 proves the LiveUpdate relaunch
+    # happened (the image ships build 5616, which brokers reject as "Old version").
+    mt5_builds = [int(m) for m in re.findall(r'MetaTrader 5[^\n]*?build\s+(\d{3,5})', txt, re.IGNORECASE)]
+    updated = any(b >= 6000 for b in mt5_builds)
     return max(boots, 2 if updated else 0)
-
-for a in active:
-    cname = a['container']
-    print(f'[Cloud Harness] Waiting for cold first-boot + LiveUpdate in container {cname}...', flush=True)
 
 # Poll ALL containers in parallel (containers boot concurrently; a sequential
 # per-container deadline would multiply the total wait by the account count).
@@ -106,7 +121,7 @@ last_counts = {}
 diagnosed = set()
 while pending and time.time() < deadline:
     for cname in list(pending):
-        logs = all_logs(cname)
+        logs = today_logs(cname)
         if logs and cname not in diagnosed:
             print(f'[Cloud Harness] {cname} terminal log(s): {logs}', flush=True)
             diagnosed.add(cname)
@@ -121,12 +136,12 @@ for cname, count in last_counts.items():
     if count >= 2:
         print(f'[Cloud Harness] Container {cname}: terminal cold first-boot complete ({count} boot(s) logged).', flush=True)
     else:
-        print(f'[Cloud Harness] WARNING: container {cname} first-boot not confirmed within 600s; proceeding anyway.', flush=True)
+        print(f'[Cloud Harness] WARNING: container {cname} first-boot not confirmed within 600s; proceeding anyway (cycle may retry).', flush=True)
 EOF
 
-# 5. Configure auto-login mt5cfg.ini and servers into running containers
-echo "[Cloud Harness] Configuring auto-login mt5cfg.ini and Exness servers for active accounts..."
-python3 << 'EOF'
+    # 4b. Inject auto-login mt5cfg.ini, profiles, bases, registry into running containers
+    echo "[Cloud Harness] Configuring auto-login mt5cfg.ini and Exness servers for active accounts..."
+    python3 << 'EOF'
 import json, subprocess, os, sys
 
 if not os.path.exists('data/active_accounts.json'):
@@ -149,25 +164,31 @@ for a in active:
     target_dir = "/opt/wineprefix/drive_c/Program Files/MetaTrader 5"
     subprocess.run(['docker', 'exec', cname, 'mkdir', '-p', f'{target_dir}/Config', f'{target_dir}/Bases'], stderr=subprocess.DEVNULL)
 
-    # 1. Inject verified Config/ from pre-authenticated profiles (accounts.dat, servers.dat, terminal.ini)
+    # 0. Inject verified Config/ from pre-authenticated profiles (accounts.dat, servers.dat, terminal.ini)
     profile_cfg = os.path.join('config', 'profiles', cname, 'Config')
     if os.path.isdir(profile_cfg):
         subprocess.run(['docker', 'cp', f'{profile_cfg}/.', f'{cname}:{target_dir}/Config/'], stderr=subprocess.DEVNULL)
     elif os.path.exists('config/servers.dat'):
         subprocess.run(['docker', 'cp', 'config/servers.dat', f'{cname}:{target_dir}/Config/servers.dat'], stderr=subprocess.DEVNULL)
 
-    # 2. Inject all broker Bases (Exness-MT5Real21, Exness-MT5Trial9, AiwaCapital-Server)
+    # 1. Inject all broker Bases (Exness-MT5Real21, Exness-MT5Trial9, AiwaCapital-Server)
     if os.path.isdir('config/bases'):
         for b_name in os.listdir('config/bases'):
             b_src = os.path.join('config/bases', b_name)
             if os.path.isdir(b_src):
                 subprocess.run(['docker', 'cp', b_src, f'{cname}:{target_dir}/Bases/'], stderr=subprocess.DEVNULL)
 
-    # 3. Inject AppData Roaming terminal preferences
+    # 2. Inject AppData Roaming terminal preferences
     profile_appdata = os.path.join('config', 'profiles', cname, 'AppData')
     if os.path.isdir(profile_appdata):
         roaming_target = "/opt/wineprefix/drive_c/users/root/AppData"
         subprocess.run(['docker', 'cp', f'{profile_appdata}/.', f'{cname}:{roaming_target}/'], stderr=subprocess.DEVNULL)
+
+    # 3. Inject Wine registry state (user.reg / system.reg) for IPC parity
+    for reg in ('user.reg', 'system.reg'):
+        reg_src = os.path.join('config', 'profiles', cname, reg)
+        if os.path.exists(reg_src):
+            subprocess.run(['docker', 'cp', reg_src, f'{cname}:/opt/wineprefix/{reg}'], stderr=subprocess.DEVNULL)
 
     cfg_content = f'''[Common]
 Login={login}
@@ -196,15 +217,13 @@ NewsEnable=0
     subprocess.run(['docker', 'restart', cname], check=True)
 EOF
 
-# 6. Validate active MT5 bridges with a real MT5-level readiness gate (not just TCP).
-#    Connects through the RPyC bridge inside each container and verifies initialize()
-#    and the expected account, then dumps full diagnostics if a container is not ready.
-echo "[Cloud Harness] Validating active MT5 RPyC bridges (MT5-level deep gate)..."
-python3 << 'EOF'
-import json, os, sys, time, subprocess
+    # 4c. Deep MT5-level readiness gate through each container's RPyC bridge
+    echo "[Cloud Harness] Validating active MT5 bridges (MT5-level deep gate, cycle ${CYCLE})..."
+    python3 << EOF > "logs/deep_gate_${CYCLE}.log" 2>&1
+import json, os, subprocess, sys, time
 
 if not os.path.exists('data/active_accounts.json'):
-    sys.exit(0)
+    raise SystemExit(0)
 
 with open('data/active_accounts.json') as f:
     active = json.load(f)
@@ -213,7 +232,7 @@ PROBE = r'''
 import rpyc
 try:
     c = rpyc.classic.connect("127.0.0.1", 18812)
-    c._config["sync_request_timeout"] = 30
+    c._config["sync_request_timeout"] = 20
     m = c.modules["MetaTrader5"]
     ok = m.initialize()
     acc = m.account_info()
@@ -256,7 +275,7 @@ for a in active:
                     expected_login = None
     print(f'[Cloud Harness] Deep-gating MT5 bridge in container {cname} (port 18812 / host {port} for {aid})...', flush=True)
     ok = False
-    for attempt in range(1, 31):
+    for attempt in range(1, 13):
         try:
             out = run_gate(cname)
             if 'GATE_RESULT True' in out:
@@ -275,12 +294,27 @@ for a in active:
         failed.append(cname)
 
 if failed:
-    print(f'[Cloud Harness] FATAL: {len(failed)} container(s) not ready: {failed}', file=sys.stderr)
-    sys.exit(1)
-print('[Cloud Harness] All active MT5 bridges verified ready (account info confirmed).')
+    print(f'GATE_FAILED_CONTAINERS: {failed}')
+else:
+    print('ALL_CONTAINERS_READY')
 EOF
 
-# 7. Launch bots dynamically for active accounts
+    if grep -q "ALL_CONTAINERS_READY" "logs/deep_gate_${CYCLE}.log"; then
+        echo "[Cloud Harness] All containers passed the deep MT5 gate on cycle ${CYCLE}."
+        break
+    fi
+    echo "[Cloud Harness] Cycle ${CYCLE} completed without all containers ready; retrying after 30s."
+    tail -30 "logs/deep_gate_${CYCLE}.log" || true
+    sleep 30
+done
+
+# 5. Fail loudly if no cycle reached a verified ready state
+if ! grep -qh "ALL_CONTAINERS_READY" logs/deep_gate_*.log 2>/dev/null; then
+    echo "[Cloud Harness] FATAL: no container reached a verified MT5-ready state after 3 cycles." >&2
+    exit 1
+fi
+
+# 6. Launch bots dynamically for active accounts
 RUN_FLAGS=""
 if [ "${DRY_RUN:-false}" = "true" ]; then
     echo "[Cloud Harness] DRY RUN MODE ENABLED: Bot will simulate operations without live order execution."
