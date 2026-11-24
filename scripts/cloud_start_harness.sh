@@ -63,7 +63,7 @@ sleep 10
 #    post-update relaunch first.
 echo "[Cloud Harness] Waiting for MT5 terminal cold first-boot (LiveUpdate) to complete..."
 python3 << 'EOF'
-import json, os, sys, time, subprocess
+import json, os, re, sys, time, subprocess
 
 if not os.path.exists('data/active_accounts.json'):
     sys.exit(0)
@@ -73,11 +73,14 @@ with open('data/active_accounts.json') as f:
 
 MT5_DIR = "/opt/wineprefix/drive_c/Program Files/MetaTrader 5"
 
-def newest_log(cname):
+def all_logs(cname):
+    # MT5 build 5616 writes logs under the install dir; some builds write under
+    # the AppData/Roaming/MetaQuotes/Terminal/<hash>/logs dir. Search both.
     r = subprocess.run(['docker', 'exec', cname, 'sh', '-c',
-                        f'ls -t "{MT5_DIR}/logs/"*.log 2>/dev/null | head -1'],
+                        f'ls -t "{MT5_DIR}/logs/"*.log '
+                        f'/opt/wineprefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/*/logs/*.log 2>/dev/null | head -5'],
                        capture_output=True, text=True)
-    return (r.stdout or '').strip()
+    return [l for l in (r.stdout or '').strip().splitlines() if l]
 
 def boot_count(cname, logpath):
     # strip NUL bytes so UTF-16LE log lines decode as plain ASCII
@@ -85,27 +88,40 @@ def boot_count(cname, logpath):
                         f'cat "{logpath}" 2>/dev/null | tr -d "\\000"'],
                        capture_output=True)
     txt = (r.stdout or b'').decode('utf-8', errors='ignore')
-    return txt.lower().count('successfully initialized')
+    boots = txt.lower().count('successfully initialized')
+    # A terminal start line with build >= 6000 proves the LiveUpdate relaunch happened.
+    builds = [int(m) for m in re.findall(r'build\s+(\d{3,5})', txt, re.IGNORECASE)]
+    updated = any(b >= 6000 for b in builds)
+    return max(boots, 2 if updated else 0)
 
 for a in active:
     cname = a['container']
     print(f'[Cloud Harness] Waiting for cold first-boot + LiveUpdate in container {cname}...', flush=True)
-    deadline = time.time() + 480
-    count = 0
-    while time.time() < deadline:
-        log = newest_log(cname)
-        if log:
-            try:
-                count = boot_count(cname, log)
-            except Exception:
-                count = 0
-            if count >= 2:
-                break
-        time.sleep(12)
+
+# Poll ALL containers in parallel (containers boot concurrently; a sequential
+# per-container deadline would multiply the total wait by the account count).
+deadline = time.time() + 600
+pending = {a['container'] for a in active}
+last_counts = {}
+diagnosed = set()
+while pending and time.time() < deadline:
+    for cname in list(pending):
+        logs = all_logs(cname)
+        if logs and cname not in diagnosed:
+            print(f'[Cloud Harness] {cname} terminal log(s): {logs}', flush=True)
+            diagnosed.add(cname)
+        count = max((boot_count(cname, l) for l in logs), default=0)
+        last_counts[cname] = count
+        if count >= 2:
+            pending.discard(cname)
+    if pending:
+        time.sleep(15)
+
+for cname, count in last_counts.items():
     if count >= 2:
         print(f'[Cloud Harness] Container {cname}: terminal cold first-boot complete ({count} boot(s) logged).', flush=True)
     else:
-        print(f'[Cloud Harness] WARNING: container {cname} first-boot not confirmed within 480s; proceeding anyway.', flush=True)
+        print(f'[Cloud Harness] WARNING: container {cname} first-boot not confirmed within 600s; proceeding anyway.', flush=True)
 EOF
 
 # 5. Configure auto-login mt5cfg.ini and servers into running containers
