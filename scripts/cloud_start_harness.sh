@@ -55,7 +55,60 @@ fi
 echo "[Cloud Harness] Waiting 10s for container initialization..."
 sleep 10
 
-# 4. Configure auto-login mt5cfg.ini and servers into running containers
+# 4. Wait for MT5 terminal cold first-boot to complete BEFORE profile injection.
+#    The lprett/mt5linux image now ships an old terminal build; on first boot MT5 runs its
+#    LiveUpdate (which relaunches the terminal at the current build). Profiles injected
+#    before that completes are deleted by the running terminal ("Accounts deleted due old
+#    version") and the account can never authorize afterwards. We therefore wait for the
+#    post-update relaunch first.
+echo "[Cloud Harness] Waiting for MT5 terminal cold first-boot (LiveUpdate) to complete..."
+python3 << 'EOF'
+import json, os, sys, time, subprocess
+
+if not os.path.exists('data/active_accounts.json'):
+    sys.exit(0)
+
+with open('data/active_accounts.json') as f:
+    active = json.load(f)
+
+MT5_DIR = "/opt/wineprefix/drive_c/Program Files/MetaTrader 5"
+
+def newest_log(cname):
+    r = subprocess.run(['docker', 'exec', cname, 'sh', '-c',
+                        f'ls -t "{MT5_DIR}/logs/"*.log 2>/dev/null | head -1'],
+                       capture_output=True, text=True)
+    return (r.stdout or '').strip()
+
+def boot_count(cname, logpath):
+    # strip NUL bytes so UTF-16LE log lines decode as plain ASCII
+    r = subprocess.run(['docker', 'exec', cname, 'sh', '-c',
+                        f'cat "{logpath}" 2>/dev/null | tr -d "\\000"'],
+                       capture_output=True)
+    txt = (r.stdout or b'').decode('utf-8', errors='ignore')
+    return txt.lower().count('successfully initialized')
+
+for a in active:
+    cname = a['container']
+    print(f'[Cloud Harness] Waiting for cold first-boot + LiveUpdate in container {cname}...', flush=True)
+    deadline = time.time() + 480
+    count = 0
+    while time.time() < deadline:
+        log = newest_log(cname)
+        if log:
+            try:
+                count = boot_count(cname, log)
+            except Exception:
+                count = 0
+            if count >= 2:
+                break
+        time.sleep(12)
+    if count >= 2:
+        print(f'[Cloud Harness] Container {cname}: terminal cold first-boot complete ({count} boot(s) logged).', flush=True)
+    else:
+        print(f'[Cloud Harness] WARNING: container {cname} first-boot not confirmed within 480s; proceeding anyway.', flush=True)
+EOF
+
+# 5. Configure auto-login mt5cfg.ini and servers into running containers
 echo "[Cloud Harness] Configuring auto-login mt5cfg.ini and Exness servers for active accounts..."
 python3 << 'EOF'
 import json, subprocess, os, sys
@@ -127,10 +180,12 @@ NewsEnable=0
     subprocess.run(['docker', 'restart', cname], check=True)
 EOF
 
-# 5. Wait for active RPyC bridges to become fully ready (TCP socket probe)
-echo "[Cloud Harness] Validating active MT5 RPyC bridges..."
+# 6. Validate active MT5 bridges with a real MT5-level readiness gate (not just TCP).
+#    Connects through the RPyC bridge inside each container and verifies initialize()
+#    and the expected account, then dumps full diagnostics if a container is not ready.
+echo "[Cloud Harness] Validating active MT5 RPyC bridges (MT5-level deep gate)..."
 python3 << 'EOF'
-import os, sys, time, json, subprocess
+import json, os, sys, time, subprocess
 
 if not os.path.exists('data/active_accounts.json'):
     sys.exit(0)
@@ -138,29 +193,72 @@ if not os.path.exists('data/active_accounts.json'):
 with open('data/active_accounts.json') as f:
     active = json.load(f)
 
+PROBE = r'''
+import rpyc
+try:
+    c = rpyc.classic.connect("127.0.0.1", 18812)
+    c._config["sync_request_timeout"] = 30
+    m = c.modules["MetaTrader5"]
+    ok = m.initialize()
+    acc = m.account_info()
+    print("GATE_RESULT", ok, m.last_error(), (acc.login, acc.server, round(acc.balance, 2)) if acc else None, flush=True)
+    c.close()
+except Exception as e:
+    print("GATE_ERROR", e, flush=True)
+'''
+
+def dump_diag(cname, aid):
+    print(f'=== DIAGNOSTICS for {cname} ({aid}) ===', file=sys.stderr)
+    subprocess.run(['docker', 'exec', cname, 'sh', '-c', 'ps aux | grep -E "terminal64|mt5linux" | grep -v grep'])
+    subprocess.run(['docker', 'exec', cname, 'sh', '-c',
+                    'cat "/opt/wineprefix/drive_c/Program Files/MetaTrader 5/mt5cfg.ini" 2>/dev/null | tr -d "\\000" | head -8'])
+    subprocess.run(['docker', 'exec', cname, 'sh', '-c',
+                    'tail -25 "$(ls -t /opt/wineprefix/drive_c/Program\\ Files/MetaTrader\\ 5/logs/*.log 2>/dev/null | head -1)" 2>/dev/null | tr -d "\\000" | tail -20'])
+    subprocess.run(['docker', 'logs', '--tail', '30', cname])
+
+failed = []
 for a in active:
     cname = a['container']
     port = int(a['rpyc_port'])
     aid = a['id']
-    print(f'[Cloud Harness] Probing MT5 RPyC bridge in container {cname} (port 18812 / host {port} for {aid})...')
+    expected_login = None
+    env_file = a.get('env_file')
+    if env_file and os.path.exists(env_file):
+        for line in open(env_file):
+            if line.startswith('MT5_LOGIN='):
+                try:
+                    expected_login = int(line.split('=', 1)[1].strip())
+                except ValueError:
+                    expected_login = None
+    print(f'[Cloud Harness] Deep-gating MT5 bridge in container {cname} (port 18812 / host {port} for {aid})...', flush=True)
     ok = False
-    for attempt in range(1, 46):
-        cmd = ['docker', 'exec', cname, 'python3', '-c', 'import socket; s = socket.socket(); s.settimeout(2.0); s.connect(("127.0.0.1", 18812)); s.close()']
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if res.returncode == 0:
-            ok = True
-            print(f'[Cloud Harness] MT5 RPyC bridge in container {cname} is LISTENING and READY (attempt {attempt}).')
-            break
-        time.sleep(2.0)
+    for attempt in range(1, 31):
+        try:
+            res = subprocess.run(['docker', 'exec', cname, 'sh', '-c', f'cd /mt5linux && wine python -c {PROBE!r}'],
+                                 capture_output=True, text=True, timeout=90)
+            out = (res.stdout or '') + (res.stderr or '')
+            if 'GATE_RESULT True' in out:
+                if expected_login is None or f'({expected_login},' in out.replace('GATE_RESULT True ', '('):
+                    print(f'[Cloud Harness] Container {cname}: MT5 READY (attempt {attempt}). {out.strip().splitlines()[-1]}', flush=True)
+                    ok = True
+                    break
+            elif attempt % 3 == 0:
+                print(f'[Cloud Harness] Container {cname} not ready yet (attempt {attempt}): {out.strip().splitlines()[-1] if out.strip() else "no output"}', flush=True)
+        except Exception as e:
+            pass
+        time.sleep(10)
     if not ok:
-        print(f'[Cloud Harness] ERROR: Container {cname} bridge failed to initialize within 90s.', file=sys.stderr)
-        print(f'=== Container logs for {cname} ===', file=sys.stderr)
-        subprocess.run(['docker', 'logs', '--tail', '50', cname])
-        sys.exit(1)
-print('[Cloud Harness] All active MT5 RPyC bridges verified ready.')
+        print(f'[Cloud Harness] ERROR: Container {cname} failed MT5 readiness gate within 300s.', file=sys.stderr)
+        dump_diag(cname, aid)
+        failed.append(cname)
+
+if failed:
+    print(f'[Cloud Harness] FATAL: {len(failed)} container(s) not ready: {failed}', file=sys.stderr)
+    sys.exit(1)
+print('[Cloud Harness] All active MT5 bridges verified ready (account info confirmed).')
 EOF
 
-# 6. Launch bots dynamically for active accounts
+# 7. Launch bots dynamically for active accounts
 RUN_FLAGS=""
 if [ "${DRY_RUN:-false}" = "true" ]; then
     echo "[Cloud Harness] DRY RUN MODE ENABLED: Bot will simulate operations without live order execution."
