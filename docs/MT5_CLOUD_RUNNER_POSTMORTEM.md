@@ -179,3 +179,33 @@ longer used.
 - Local workstation containers may be stopped when convenient (mission end-state).
 - No outstanding code changes required. If the upstream image changes again, this
   postmortem's probe methodology (section 3) will pinpoint it in minutes.
+
+---
+
+## 9. Addendum — Nov 25 mid-session stop (infrastructure timeout, not the bot)
+
+**What happened:** the scheduled 05:25 UTC session was trading healthily — heartbeats
+with live balances and M15 bar-close logs at 12:15 WAT — when the job was cancelled at
+**12:16:10 WAT**, exactly `timeout-minutes: 350` (5h50m) after start. GitHub then killed
+the fleet. The 10:45 UTC scheduled run never appeared (GitHub cron delays/skips are
+documented and visible in this repo's own history — the 05:00 cron fired 25 min late the
+same day), so nothing replaced the session until a manual dispatch at 12:30 WAT, which
+cold-booted (~14 min) and reconnected. ~14-minute outage, zero bot errors.
+
+**Hardening shipped** (commit `c26ca0d`):
+- `.github/workflows/fleet_watchdog.yml` + `scripts/fleet_watchdog.sh`: every 15 min it
+  checks Worker telemetry and dispatches a replacement session **only** when the fleet is
+  verifiably DOWN *and* no healthy session exists — never while a run is cold-booting
+  (< 40 min old), never outside the 00:15-17:30 WAT window/weekends, never when the
+  Worker API is unreachable. Zombie runs (active > 40 min with the fleet down) are
+  replaced through the existing concurrency group. Verified live: "Fleet ONLINE.
+  Standby." on the healthy fleet.
+
+**Known behavior to expect (not bugs):**
+- Each session handoff (cron boundary, timeout boundary, watchdog replacement) costs a
+  ~14-minute cold-boot gap. The window is inherent to ephemeral GitHub runners + the
+  image's first-boot LiveUpdate.
+- Engine Telegram alerts are limited to genuine trade/session events
+  (`notify_fault`/`notify_recovery` are permanently disabled). An "error"-looking alert
+  during an outage is most likely a trade-close (❌) or the Control Studio's offline
+  notification, not a fault alert from the engine.
