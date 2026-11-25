@@ -9,6 +9,8 @@ name: Fleet Watchdog
 
 on:
   schedule:
+    # Every 15 minutes; the script's window guard makes this a no-op
+    # outside the 00:15-17:30 WAT trading window.
     - cron: '*/15 * * * *'
   workflow_dispatch: {}
 
