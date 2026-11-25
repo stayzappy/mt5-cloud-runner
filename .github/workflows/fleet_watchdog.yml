@@ -1,0 +1,32 @@
+name: Fleet Watchdog
+
+# Self-healing safety net for the trading fleet. Every 15 minutes it checks the
+# Cloudflare Worker telemetry; if the fleet is verifiably offline AND no healthy
+# session is running (no active run, or a zombie run older than 25 minutes with
+# the fleet down), it dispatches a replacement trading session. It never
+# dispatches while a session is cold-booting, outside the 00:15-17:30 WAT
+# trading window, or when the Worker API is unreachable.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  watchdog:
+    name: Fleet Health Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout Harness
+        uses: actions/checkout@v4
+
+      - name: Check fleet health and dispatch replacement if offline
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          CONTROL_WORKER_URL: ${{ secrets.CONTROL_WORKER_URL || 'https://mt5-control-studio.zapstream.workers.dev' }}
+        run: bash scripts/fleet_watchdog.sh
