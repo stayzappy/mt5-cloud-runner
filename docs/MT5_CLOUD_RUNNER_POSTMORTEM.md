@@ -172,6 +172,40 @@ longer used.
 
 ---
 
+---
+
+## 10. Addendum — Nov 26 dual-pair (Gold + GBPJPY) rollout
+
+**What shipped:** the fleet now trades Gold (32 setups) **and GBPJPY (42 setups)** on all
+4 accounts under the Sweet Spot 1 governor (5 trades/week account-wide, 1/day/pair,
+pair-isolated 2-win cashout / 2-loss weekly bench, max 1 open position per pair).
+
+**Engine** (`mt5-forex-bot`, merge `9673380`):
+- `src/pair_context.py`: per-pair broker identity (symbol, magic +100 offset, pip
+  geometry, spread guard gj <= 2.8 pips, per-pair break-even; gj keeps ZERO_BE for
+  backtest parity).
+- `risk_manager.py`: `_sweet_spot_1_gate` — ledger-derived per-pair weekly/daily stats
+  (restart-safe); all account-level protections unchanged.
+- `fleet_runner.py`: dual-stream scanner (gold + GBPJPY per M15 close), per-symbol
+  candle dedup, per-symbol active positions.
+- `trade_executor.py`: position management partitioned by (magic, symbol); post-fill
+  verification (repairs or closes mis-sized/un-bracketed fills).
+- Config-gated per account via `ACTIVE_STRATEGY=DUAL_PLETHORA`; gold-only accounts
+  keep their exact behavior.
+
+**Validation gates passed:** 118 unit tests; offline engine-vs-ledger parity replay
+(84% governed signal match, identical 1.54 trades/week cadence — residual drift
+documented); local dry-run rehearsal on all 4 accounts (caught and fixed a GBPJPY
+stream symbol-binding bug before release); released-binary smoke test.
+
+**Cloud cutover lever:** `config/dual_pair_accounts.json` in this repo + an additive
+harness section switch listed accounts to DUAL_PLETHORA at session start. Delete or
+empty the file to revert all accounts to gold-only at the next session.
+
+**Known residuals:** the 42-setup GBPJPY suite's OOS win rate is OOS-selection
+conditioned; live planning band is 60-66% WR. The pair-isolated 2L stop bounds a bad
+GBPJPY regime at -1R that pair per week (worst week -3R).
+
 ## 8. Current State / Follow-ups
 
 - Cloud fleet is the sole runner (continuous mode). The scheduled cron workflow will
