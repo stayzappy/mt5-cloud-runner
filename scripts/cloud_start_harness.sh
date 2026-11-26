@@ -41,6 +41,24 @@ CONTROL_WORKER_URL="${CONTROL_WORKER_URL:-https://mt5-control-studio.zapstream.w
 
 python3 scripts/sync_accounts.py
 
+# 2b. Optional dual-pair rollout override (additive; controlled by file presence).
+#     Lists account IDs whose ACTIVE_STRATEGY is switched to DUAL_PLETHORA for this
+#     session (Gold + GBPJPY under the Sweet Spot 1 governor). Delete the file (or
+#     empty the list) to revert every account to the Worker's gold-only setting.
+if [ -f config/dual_pair_accounts.json ]; then
+    echo "[Cloud Harness] Applying dual-pair override from config/dual_pair_accounts.json"
+    while IFS= read -r aid; do
+        [ -z "$aid" ] && continue
+        env_file=".env.$aid"
+        if [ -f "$env_file" ]; then
+            sed -i 's/^ACTIVE_STRATEGY=.*/ACTIVE_STRATEGY=DUAL_PLETHORA/' "$env_file"
+            echo "[Cloud Harness] Dual-pair override applied to $aid"
+        else
+            echo "[Cloud Harness] WARNING: $env_file not found; dual-pair override skipped for $aid"
+        fi
+    done < <(python3 -c "import json; [print(a) for a in json.load(open('config/dual_pair_accounts.json'))]" 2>/dev/null || true)
+fi
+
 # 3. Start Docker containers (Hot Boot model: Wine prefix boots with existing Named Pipes)
 ACTIVE_SERVICES=""
 if [ -f "data/active_services.txt" ] && [ -s "data/active_services.txt" ]; then
