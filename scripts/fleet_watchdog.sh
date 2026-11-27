@@ -70,8 +70,9 @@ else
 fi
 
 # 4. Dispatch a replacement session (continuous mode; next cron takes over).
-#    Alternate-slot aware: if the zombie holds one relay slot, dispatch the
-#    other so per-slot concurrency cancels the zombie instead of stacking.
+#    Phase 1 safety: dispatch into the SAME slot as the zombie so per-slot
+#    concurrency cancels it before the replacement boots (single-trader
+#    guarantee). Phase 2 warm-standby flips this to the alternate slot.
 ACTIVE_SLOT=$(gh run list --repo "$REPO" --workflow "$WORKFLOW_FILE" --limit 5 \
               --json status,displayTitle 2>/dev/null | python3 -c "
 import json, sys
@@ -88,7 +89,7 @@ for r in runs:
             print('blue'); raise SystemExit
 raise SystemExit
 " || true)
-if [ "$ACTIVE_SLOT" = "green" ]; then DISPATCH_SLOT="blue"; else DISPATCH_SLOT="green"; fi
+DISPATCH_SLOT="${ACTIVE_SLOT:-blue}"
 
 DISPATCH_CMD=(gh workflow run "$WORKFLOW_FILE" --repo "$REPO"
               -f force=false -f dry_run=false -f window_mode=false -f target_account=
