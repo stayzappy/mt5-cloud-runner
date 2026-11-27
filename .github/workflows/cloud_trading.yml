@@ -34,16 +34,25 @@ on:
         required: false
         default: false
         type: boolean
+      slot:
+        description: 'Relay slot (blue or green)'
+        required: false
+        default: 'blue'
+        type: choice
+        options: ['blue', 'green']
 
 concurrency:
-  group: mt5-cloud-session
+  # Per-slot isolation: a relay replacement (green) never kills the active runner (blue).
+  group: mt5-cloud-session-${{ inputs.slot || github.event.client_payload.slot || 'blue' }}
   cancel-in-progress: true
 
 jobs:
   run-trading-session:
-    name: Headless MT5 Multi-Account Session
+    name: Cloud Session (${{ inputs.slot || github.event.client_payload.slot || 'blue' }})
     runs-on: ubuntu-latest
     timeout-minutes: 350
+    env:
+      RUNNER_SLOT: ${{ inputs.slot || github.event.client_payload.slot || 'blue' }}
 
     steps:
       - name: Checkout Harness

@@ -70,12 +70,33 @@ else
 fi
 
 # 4. Dispatch a replacement session (continuous mode; next cron takes over).
+#    Alternate-slot aware: if the zombie holds one relay slot, dispatch the
+#    other so per-slot concurrency cancels the zombie instead of stacking.
+ACTIVE_SLOT=$(gh run list --repo "$REPO" --workflow "$WORKFLOW_FILE" --limit 5 \
+              --json status,displayTitle 2>/dev/null | python3 -c "
+import json, sys
+try:
+    runs = json.load(sys.stdin)
+except Exception:
+    raise SystemExit
+for r in runs:
+    if r.get('status') in ('in_progress', 'queued'):
+        t = str(r.get('displayTitle') or '')
+        if 'green' in t.lower():
+            print('green'); raise SystemExit
+        if 'blue' in t.lower():
+            print('blue'); raise SystemExit
+raise SystemExit
+" || true)
+if [ "$ACTIVE_SLOT" = "green" ]; then DISPATCH_SLOT="blue"; else DISPATCH_SLOT="green"; fi
+
 DISPATCH_CMD=(gh workflow run "$WORKFLOW_FILE" --repo "$REPO"
-              -f force=false -f dry_run=false -f window_mode=false -f target_account=)
+              -f force=false -f dry_run=false -f window_mode=false -f target_account=
+              -f slot="$DISPATCH_SLOT")
 if [ "${WATCHDOG_DRY_RUN:-0}" = "1" ]; then
     log "DRY RUN - would dispatch: ${DISPATCH_CMD[*]}"
     exit 0
 fi
-log "Dispatching replacement session: ${DISPATCH_CMD[*]}"
+log "Dispatching replacement session (slot=$DISPATCH_SLOT, active slot='${ACTIVE_SLOT:-none}'): ${DISPATCH_CMD[*]}"
 "${DISPATCH_CMD[@]}"
 log "Replacement session dispatched."

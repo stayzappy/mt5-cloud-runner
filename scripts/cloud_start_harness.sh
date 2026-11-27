@@ -11,6 +11,11 @@ cd "$ROOT_DIR"
 
 mkdir -p logs data
 
+# Relay slot identity (set by the workflow; defaults to blue). Distinct slots let
+# a replacement runner boot while the active one keeps trading.
+export RUNNER_SLOT="${RUNNER_SLOT:-blue}"
+echo "[Cloud Harness] Relay slot: ${RUNNER_SLOT}"
+
 echo "===================================================================="
 echo "   STARTING MT5 CLOUD RUNNER HARNESS (HEADLESS MULTI-ACCOUNT)"
 echo "   Host Time (UTC): $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
@@ -131,13 +136,60 @@ def boot_count(cname, logpath):
     updated = any(b >= 6000 for b in mt5_builds)
     return max(boots, 2 if updated else 0)
 
+BUILD_PROBE = r'''
+import rpyc
+try:
+    c = rpyc.classic.connect("127.0.0.1", 18812)
+    m = c.modules["MetaTrader5"]
+    ti = m.terminal_info()
+    build = int(getattr(ti, "build", 0) or 0)
+    connected = bool(getattr(ti, "connected", False))
+    print("BUILD_PROBE", build, connected, flush=True)
+    c.close()
+except Exception as e:
+    print("BUILD_PROBE_ERROR", e, flush=True)
+'''
+
+def terminal_build(cname):
+    """Fast deterministic readiness: ask the in-container MT5 bridge for the
+    terminal build directly (Exness logs 'authorized on ... build 6230' in
+    UTF-16, which the log regex above cannot match -> the old 600s stall)."""
+    p = subprocess.Popen(['docker', 'exec', '-i', cname, 'sh', '-c',
+                          'cat > /tmp/mt5_build_probe.py && cd /mt5linux && wine python /tmp/mt5_build_probe.py'],
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    try:
+        out, _ = p.communicate(input=BUILD_PROBE.encode(), timeout=90)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        return 0
+    txt = (out or b'').decode('utf-8', errors='ignore')
+    for line in txt.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[0] == 'BUILD_PROBE':
+            try:
+                return int(parts[1])
+            except ValueError:
+                return 0
+    return 0
+
+from concurrent.futures import ThreadPoolExecutor
+
 # Poll ALL containers in parallel (containers boot concurrently; a sequential
 # per-container deadline would multiply the total wait by the account count).
-deadline = time.time() + 600
+# Primary signal: in-container RPyC terminal build >= 6000 (LiveUpdate relaunch
+# done). Fallback: the UTF-16 terminal log boot counter.
+deadline = time.time() + 420
 pending = {a['container'] for a in active}
 last_counts = {}
 diagnosed = set()
+build_confirmed = set()
 while pending and time.time() < deadline:
+    with ThreadPoolExecutor(max_workers=min(4, len(pending))) as pool:
+        probe_results = dict(zip(pending, pool.map(terminal_build, list(pending))))
+    for cname in list(pending):
+        if probe_results.get(cname, 0) >= 6000:
+            build_confirmed.add(cname)
+            pending.discard(cname)
     for cname in list(pending):
         logs = today_logs(cname)
         if logs and cname not in diagnosed:
@@ -148,13 +200,15 @@ while pending and time.time() < deadline:
         if count >= 2:
             pending.discard(cname)
     if pending:
-        time.sleep(15)
+        time.sleep(10)
 
-for cname, count in last_counts.items():
-    if count >= 2:
-        print(f'[Cloud Harness] Container {cname}: terminal cold first-boot complete ({count} boot(s) logged).', flush=True)
+for cname in sorted(build_confirmed | set(last_counts)):
+    if cname in build_confirmed:
+        print(f'[Cloud Harness] Container {cname}: terminal cold first-boot complete (RPyC build probe confirmed LiveUpdate relaunch).', flush=True)
+    elif last_counts.get(cname, 0) >= 2:
+        print(f'[Cloud Harness] Container {cname}: terminal cold first-boot complete ({last_counts[cname]} boot(s) logged).', flush=True)
     else:
-        print(f'[Cloud Harness] WARNING: container {cname} first-boot not confirmed within 600s; proceeding anyway (cycle may retry).', flush=True)
+        print(f'[Cloud Harness] WARNING: container {cname} first-boot not confirmed within 420s; proceeding anyway (deep gate may retry).', flush=True)
 EOF
 
     # 4b. Inject auto-login mt5cfg.ini, profiles, bases, registry into running containers
